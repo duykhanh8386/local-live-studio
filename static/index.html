@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f0f4f7">
+  <title>Local Live Studio · Phát từ máy của bạn</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <main class="workspace">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Local Live Studio"><span class="brand-mark"><i></i><i></i><i></i><i></i><i></i></span><span>Local Live <strong>Studio</strong></span></a>
+      <div class="host-badge"><span class="dot"></span> Máy phát local <span class="divider">/</span> <span id="clock">--:--:--</span></div>
+    </header>
+    <section class="intro">
+      <div><div class="eyebrow">YOUR VIDEOS. YOUR MACHINE.</div><h1>Đưa video lên sóng.</h1><p>Chọn file trên máy, đặt lịch và để phần còn lại chạy tự động.</p></div>
+      <div class="intro-note"><span class="icon-circle">↗</span><div><strong>Phát trực tiếp từ máy của bạn</strong><span>File local → máy phát → nền tảng livestream</span></div></div>
+    </section>
+    <section class="metrics" aria-label="Tổng quan lịch phát">
+      <article><span class="metric-icon copper">▤</span><div><span>Tổng lịch phát</span><strong id="total-count">0</strong></div><small>Được lưu trên máy</small></article>
+      <article><span class="metric-icon green">◉</span><div><span>Đang phát</span><strong id="live-count">0</strong></div><small id="capacity">Tối đa 4 luồng đồng thời</small></article>
+      <article><span class="metric-icon blue">◷</span><div><span>Chờ đến lịch</span><strong id="scheduled-count">0</strong></div><small>Múi giờ Việt Nam · UTC+7</small></article>
+      <article><span class="metric-icon lavender">✓</span><div><span>Đã hoàn tất</span><strong id="done-count">0</strong></div><small id="tool-status">Đang kiểm tra máy phát…</small></article>
+    </section>
+
+    <section class="surface composer" aria-labelledby="composer-title">
+      <div class="section-heading"><div><span class="eyebrow">BẮT ĐẦU MỘT LUỒNG MỚI</span><h2 id="composer-title">Thiết lập livestream</h2></div><div class="mode-tabs" role="tablist" aria-label="Kiểu livestream"><button id="mode-public" type="button" role="tab" aria-selected="true" class="selected">LIVE THEO GIỜ</button><button id="mode-continuous" type="button" role="tab" aria-selected="false">LIVE 24/7</button></div></div>
+      <form id="stream-form">
+        <div class="form-grid">
+          <label class="field span-6"><span>TÊN LUỒNG <em>*</em></span><input id="stream-name" name="name" placeholder="Ví dụ: Nhạc buổi tối · Kênh 01" maxlength="120" required></label>
+          <label class="field span-6"><span>STREAM KEY <em>*</em></span><div class="input-wrap"><input id="stream-key" name="stream_key" type="password" placeholder="Dán stream key từ nền tảng livestream" autocomplete="off" required><button type="button" id="toggle-key" class="input-action" aria-label="Hiện hoặc ẩn stream key">◉</button></div></label>
+          <div class="field span-12"><label for="source-path">NGUỒN VIDEO TRÊN MÁY <em>*</em></label><div class="source-input"><input id="source-path" name="source_path" placeholder="C:\Videos\video-cua-ban.mp4" required><button id="browse" type="button" class="button button-soft">▱ &nbsp; Chọn từ thư mục</button></div><div id="source-info" class="field-help">Chọn file trong thư mục có sẵn. Video được đọc trực tiếp trên máy này.</div></div>
+          <label class="field span-4"><span>THỜI GIAN BẮT ĐẦU <em>*</em></span><input id="start-at" name="start_at" type="datetime-local" step="1" required><small>Giờ Việt Nam · UTC+7</small></label>
+          <label class="field span-4" id="duration-field"><span>THỜI LƯỢNG LIVE <em>*</em></span><input id="duration" name="duration" value="04:00:00" placeholder="HH:MM:SS" pattern="\d{1,3}:[0-5]\d:[0-5]\d" required><small id="duration-help">Video tự lặp đến hết thời lượng đã đặt.</small></label>
+          <label class="field span-4"><span>BITRATE VIDEO</span><select id="bitrate" name="bitrate"><option value="3000">3.000 kbps</option><option value="4500">4.500 kbps</option><option value="6000" selected>6.000 kbps</option><option value="9000">9.000 kbps</option><option value="12000">12.000 kbps</option><option value="18000">18.000 kbps</option></select><small id="bitrate-help">Chọn theo tốc độ upload và cấu hình máy.</small></label>
+        </div>
+        <details class="advanced"><summary>Tùy chọn máy phát <span>Máy chủ, mã hóa & kết nối</span></summary><div class="form-grid">
+          <label class="field span-6"><span>URL MÁY CHỦ RTMP / RTMPS</span><input id="server-url" value="rtmps://a.rtmps.youtube.com:443/live2" required></label>
+          <label class="field span-3"><span>BỘ MÃ HÓA</span><select id="encoder"><option value="libx264">CPU · H.264</option><option value="h264_nvenc">NVIDIA · NVENC</option><option value="copy">Copy · giữ file gốc</option></select></label>
+          <label class="field span-3"><span>ĐỘ PHÂN GIẢI</span><select id="resolution"><option value="1080p">Full HD · 1080p</option><option value="720p">HD · 720p</option><option value="original">Giữ kích thước gốc</option></select></label>
+          <label class="check-field span-12"><input type="checkbox" id="auto-retry" checked><span>Tự kết nối lại khi mạng bị ngắt <small>Thử lại tối đa 5 lần cho mỗi phiên phát.</small></span></label>
+        </div></details>
+        <details class="advanced archive-options"><summary>Xử lý bản lưu YouTube sau live <span>Cắt claim & công khai</span></summary><div class="form-grid">
+          <label class="field span-12"><span>VIDEO ID HOẶC LINK PHIÊN LIVE YOUTUBE</span><input id="youtube-video-id" placeholder="https://www.youtube.com/watch?v=…" maxlength="500"><small>Lấy từ phiên live trong Studio. Mỗi phiên dùng đúng Video ID của phiên đó.</small></label>
+          <label class="check-field span-12"><input type="checkbox" id="trim-after-live"><span>Tự cắt các đoạn bị claim khi live kết thúc <small>Cắt vĩnh viễn cả hình và âm thanh tại các đoạn đó; giữ file gốc trên máy để dự phòng.</small></span></label>
+          <label class="check-field span-12"><input type="checkbox" id="publish-after-trim" checked><span>Tự chuyển sang Công khai sau khi Studio xác nhận hết claim</span></label>
+          <p class="field-help span-12">Đăng nhập bằng nút “Mở Studio / Đăng nhập” ở phần bản lưu bên dưới. Bật Auto-stop trong Studio hoặc tự kết thúc live; tool sẽ chờ YouTube xác nhận trước khi cắt.</p>
+        </div></details>
+        <div class="notice"><span>i</span><p>Máy cần bật, có mạng và chạy web này để đến lịch tự phát. Với YouTube, tạo phiên live trong Studio và bật <strong>Auto-start</strong> nếu muốn tự lên sóng khi nhận tín hiệu.</p></div>
+        <div class="form-footer"><span id="form-note">Lịch và stream key được lưu trên máy của bạn.</span><div class="button-group"><button id="cancel-edit" type="button" class="button button-soft" hidden>Hủy sửa</button><button id="live-now" type="button" class="button button-outline">▶ &nbsp; Lưu & live ngay</button><button id="save-stream" type="submit" class="button button-primary">＋ &nbsp; Thêm lịch phát</button></div></div>
+      </form>
+    </section>
+
+    <section class="schedules" aria-labelledby="schedules-title">
+      <div class="schedule-heading"><div><span class="eyebrow">QUẢN LÝ & THEO DÕI</span><h2 id="schedules-title">Lịch livestream <span id="schedule-count" class="count-pill">0</span></h2><p id="schedule-description">Tất cả các luồng bạn đã thiết lập trên máy này.</p></div><div class="button-group"><button id="refresh" class="button button-outline" type="button">↻ &nbsp; Làm mới</button><button id="export" class="button button-outline" type="button">↓ &nbsp; Xuất CSV</button><button id="clear-done" class="button button-danger-soft" type="button">⌫ &nbsp; Xóa lịch hoàn tất</button></div></div>
+      <div class="surface filterbar"><label class="filter-search"><span>⌕</span><input id="search" placeholder="Tìm tên luồng, ID hoặc tên video…" aria-label="Tìm lịch phát"></label><select id="filter-status" aria-label="Lọc trạng thái"><option value="">Tất cả trạng thái</option><option value="scheduled">Chờ lịch</option><option value="queued">Chờ máy phát</option><option value="starting">Đang kết nối</option><option value="streaming">Đang phát</option><option value="retrying">Đang kết nối lại</option><option value="stopped">Đã dừng</option><option value="completed">Hoàn tất</option><option value="failed">Lỗi</option><option value="interrupted">Bị ngắt</option><option value="missed">Lỡ lịch</option></select><select id="filter-mode" aria-label="Lọc loại livestream"><option value="">Tất cả kiểu live</option><option value="public">Live theo giờ</option><option value="continuous">Live 24/7</option></select><span class="auto-update"><span class="dot"></span> Cập nhật mỗi 2 giây</span></div>
+      <div class="surface table-surface"><div class="table-scroll"><table><thead><tr><th>ID</th><th>THÔNG TIN LỊCH</th><th>KEY / THỜI GIAN LIVE</th><th>TIẾN ĐỘ MÁY PHÁT</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody id="streams-body"></tbody></table></div><div id="empty-state" class="empty-state"><span class="empty-symbol">▻</span><h3>Sẵn sàng cho buổi live đầu tiên</h3><p>Chọn video từ máy và thêm lịch phát ở phía trên.<br>Các luồng của bạn sẽ xuất hiện tại đây.</p></div><div class="table-footer"><span id="results-count">0 lịch phát</span><span>Chạy trên localhost <span class="dot-separator">·</span> Video nằm trên máy của bạn</span></div></div>
+    </section>
+    <section class="surface archive-panel" aria-labelledby="archives-title">
+      <div class="schedule-heading"><div><span class="eyebrow">SAU KHI LIVE KẾT THÚC</span><h2 id="archives-title">Xử lý bản lưu YouTube</h2><p>Cắt đoạn bị claim, chờ YouTube xử lý rồi kiểm tra lại trước khi công khai.</p></div><div class="button-group studio-controls"><button id="studio-open" type="button" class="button button-outline">↗ &nbsp; Mở Studio / Đăng nhập</button><button id="studio-connect" type="button" class="button button-primary" disabled>Đăng nhập xong — chạy nền</button><button id="studio-cancel-login" type="button" class="button button-soft" hidden>Hủy đăng nhập</button></div></div>
+      <p id="studio-status" class="field-help" role="status">Chưa kết nối tài khoản YouTube.</p>
+      <p id="studio-session" class="field-help">Đăng nhập Google, chọn kênh rồi bấm “Đăng nhập xong — chạy nền”. Tool sẽ lưu phiên trên máy và tự xử lý các bản lưu đã chọn.</p>
+      <form id="archive-form" class="archive-form">
+        <label class="field"><span>VIDEO ĐÃ KẾT THÚC LIVE</span><input id="archive-video" placeholder="Dán Video ID hoặc link YouTube / Studio" maxlength="500" required></label>
+        <label class="check-field"><input id="archive-publish" type="checkbox" checked><span>Tự chuyển Công khai khi hết claim</span></label>
+        <label class="check-field"><input id="archive-consent" type="checkbox" required><span>Đồng ý cắt vĩnh viễn cả hình và âm thanh của đoạn bị claim.</span></label>
+        <button id="archive-add" type="submit" class="button button-primary">Thêm bản lưu cần xử lý</button>
+      </form>
+      <div class="table-scroll"><table class="archive-table"><thead><tr><th>VIDEO ID</th><th>TRẠNG THÁI</th><th>KẾT QUẢ / LÝ DO CHỜ</th><th>THAO TÁC</th></tr></thead><tbody id="archives-body"></tbody></table></div>
+      <p id="archives-empty" class="field-help">Chưa có tác vụ bản lưu. Có thể bật tự xử lý trong lịch live hoặc thêm Video ID ở đây.</p>
+      <p class="field-help">Sau khi kết nối, cửa sổ đăng nhập đóng và tác vụ chạy nền. Phiên hết hạn sẽ yêu cầu đăng nhập lại. “Hoàn tất” phản ánh lần kiểm tra hiện tại; YouTube vẫn có thể phát sinh claim mới về sau.</p>
+    </section>
+    <section class="surface archive-panel" aria-labelledby="update-title">
+      <div class="schedule-heading"><div><span class="eyebrow">PHIÊN BẢN CHƯƠNG TRÌNH</span><h2 id="update-title">Cập nhật tool</h2><p id="update-version">Đang đọc phiên bản…</p></div><div class="button-group"><button id="update-check" type="button" class="button button-outline">Kiểm tra cập nhật</button><button id="update-download" type="button" class="button button-primary" disabled>Tải bản mới</button><button id="update-install" type="button" class="button button-primary" disabled>Cài & khởi động lại</button></div></div>
+      <p id="update-message" class="field-help" role="status">Kiểm tra bản EXE của commit mới nhất trên GitHub.</p>
+      <progress id="update-progress" max="1" value="0" hidden aria-label="Tiến độ tải cập nhật"></progress>
+      <p class="field-help">Dừng live trước khi cài cập nhật. Lịch, stream key và phiên Studio được giữ trong thư mục dữ liệu riêng. <a id="update-release" href="https://github.com/duykhanh8386/local-live-studio/releases" target="_blank" rel="noreferrer">Tải EXE / xem bản phát hành ↗</a></p>
+    </section>
+    <footer class="page-footer"><span>LOCAL LIVE STUDIO</span><span>Máy của bạn là máy phát.</span><a href="https://studio.youtube.com" target="_blank" rel="noreferrer">Mở YouTube Studio ↗</a><button id="app-stop" type="button" class="button button-soft">Thoát tool</button></footer>
+  </main>
+  <dialog id="file-dialog"><div class="dialog-header"><div><span class="eyebrow">VIDEO TRÊN MÁY</span><h2>Chọn video</h2></div><button type="button" data-close="file-dialog" class="icon-button" aria-label="Đóng">×</button></div><div class="folder-address"><button type="button" id="folder-up" class="icon-button" title="Thư mục cha">↑</button><input id="folder-path" placeholder="Dán đường dẫn thư mục hoặc chọn ổ đĩa" aria-label="Đường dẫn thư mục"><button type="button" id="folder-open" class="button button-soft">Mở thư mục</button></div><div id="folder-content" class="folder-content"></div><div class="dialog-footer"><span id="folder-note">Đọc trực tiếp ổ đĩa trên máy phát.</span><button type="button" data-close="file-dialog" class="button button-outline">Đóng</button></div></dialog>
+  <dialog id="logs-dialog"><div class="dialog-header"><div><span class="eyebrow">HOẠT ĐỘNG MÁY PHÁT</span><h2 id="logs-title">Log phiên phát</h2></div><button type="button" data-close="logs-dialog" class="icon-button" aria-label="Đóng">×</button></div><pre id="logs-content"></pre><div class="dialog-footer"><span>Stream key được ẩn trong log.</span><button type="button" data-close="logs-dialog" class="button button-outline">Đóng</button></div></dialog>
+  <dialog id="confirm-dialog"><div class="dialog-header"><h2 id="confirm-title">Xác nhận</h2><button type="button" data-close="confirm-dialog" class="icon-button" aria-label="Đóng">×</button></div><p id="confirm-message"></p><div class="dialog-footer"><button type="button" data-close="confirm-dialog" class="button button-outline">Hủy</button><button id="confirm-action" type="button" class="button button-primary">Xác nhận</button></div></dialog>
+  <div id="toast-region" aria-live="polite"></div>
+</body>
+</html>

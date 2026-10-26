@@ -1,0 +1,77 @@
+LOCAL LIVE STUDIO — BẢN PORTABLE CHO WINDOWS 10/11 64-BIT
+
+CHẠY TRÊN MÁY KHÁC
+1. Gửi file LocalLiveStudio_Portable_Windows_x64_*.zip cho máy nhận.
+2. Nhấp phải file ZIP > Extract All / Giải nén tất cả.
+   Giải nén cả thư mục, ví dụ D:\LocalLiveStudio hoặc Desktop.
+3. Mở thư mục vừa giải nén, nhấp đúp START_LIVE.bat (hoặc start.bat).
+4. Chờ dòng "[OK] Máy chủ đã sẵn sàng (HTTP 200)".
+   Khi đó trình duyệt mặc định mở http://127.0.0.1:8765.
+   Nếu chưa mở, nhập địa chỉ này vào Chrome/Edge/Firefox.
+
+KHÔNG CẦN CÀI PYTHON, FFMPEG, PIP HAY THƯ VIỆN
+Python, thư viện, FFmpeg và FFprobe đã có trong runtime.
+Khởi động web không cần mạng để tải/cài thêm thành phần.
+Phát lên YouTube/nền tảng livestream vẫn cần Internet.
+Không chạy file .bat khi còn đang xem bên trong ZIP; giải nén trước.
+Không cần chạy bằng quyền Administrator. Chọn thư mục có quyền ghi dữ liệu.
+
+TẠO LỊCH LIVE
+- Danh sách ban đầu trống; gói không chứa key, lịch, video hay log của máy cũ.
+- Copy video của bạn sang máy nhận nếu video chưa có trên máy đó.
+- Chọn video bằng “Chọn từ thư mục”, nhập stream key và thời gian UTC+7.
+- Chọn Live theo giờ hoặc Live 24/7; mỗi luồng dùng một video và tự lặp.
+- YouTube: tạo phiên live trong Studio; bật Auto-start nếu muốn tự lên sóng.
+  Tiêu đề và quyền riêng tư được thiết lập tại YouTube Studio.
+- Giữ máy bật, không Sleep, có mạng và cửa sổ chương trình đang chạy.
+- Đóng tab trình duyệt không dừng live. Ctrl+C trong cửa sổ chương trình
+  sẽ dừng bộ phát. Trên Windows, đóng chương trình cũng kết thúc FFmpeg của nó.
+
+TỰ XỬ LÝ BẢN LƯU YOUTUBE
+- Máy cần cài Chrome hoặc Edge. Thư viện Playwright đã kèm trong runtime.
+- Trong web, xuống “Xử lý bản lưu YouTube”, bấm “Mở Studio / Đăng nhập”.
+  Đăng nhập và chọn đúng kênh trong cửa sổ Studio riêng, rồi quay lại web
+  bấm “Đăng nhập xong — chạy nền”. Tool kiểm tra và lưu phiên trên máy,
+  đóng cửa sổ đăng nhập và tự xử lý bằng trình duyệt chạy nền.
+  Trong lúc đăng nhập, hàng chờ cắt tạm dừng để không chuyển trang của bạn.
+- Nhập Video ID/link trong tùy chọn lịch live và bật tự cắt sau live,
+  hoặc thêm bản lưu đã có bằng form ở cuối trang.
+- Cắt vĩnh viễn cả hình và âm thanh tại các đoạn bị claim trên YouTube.
+  Mặc định tự Công khai khi kiểm tra hết claim; có thể bỏ tùy chọn này.
+- Bật Auto-stop hoặc tự kết thúc live trong Studio. Tool chờ live kết thúc,
+  cắt từng claim, chờ YouTube xử lý rồi đọc lại; không coi gửi lệnh là xong.
+- Khi hết phiên, đăng nhập lại và bấm Đăng nhập xong — chạy nền để tiếp tục.
+  Nếu báo Cần kiểm tra, đọc log rồi bấm Tiếp tục sau khi sửa.
+  Dừng tự động không hủy lệnh cắt đã gửi. Xem README.md để biết giới hạn.
+- Phiên Studio lưu trong data\studio-profile. Không chia sẻ thư mục data.
+
+DỮ LIỆU VÀ CHUYỂN MÁY
+Lịch/log/key mới nằm trong thư mục data ngay bên cạnh START_LIVE.bat.
+Key được mã hóa theo tài khoản Windows đang dùng. Không copy data của máy
+cũ để dùng key trên máy mới; hãy nhập lại key và chọn lại đường dẫn video.
+Khi gửi cho người khác, dùng ZIP sạch ban đầu thay vì nén cả thư mục đã dùng.
+Khi cập nhật bản mới trên cùng máy/tài khoản, đóng bản cũ rồi có thể chép
+thư mục data sang thư mục bản mới để giữ lịch.
+
+KIỂM TRA / ĐỔI CỔNG
+Nếu trình duyệt báo ERR_CONNECTION_REFUSED / từ chối kết nối:
+- Giữ cửa sổ START_LIVE.bat mở, chạy thêm DIAGNOSE_LIVE.bat.
+- Kết quả kết nối và lỗi khởi động được lưu trong data\diagnostic.txt.
+- Log chạy ứng dụng nằm trong data\startup.log. Nếu khởi động bị treo
+  quá 30 giây, log có thêm thông tin vị trí đang chờ.
+- Gửi phần [LỖI] và các dòng khởi động cuối để xác định nguyên nhân.
+- Nếu dùng cổng khác: DIAGNOSE_LIVE.bat --port 8770.
+Chạy CHECK_SETUP.bat để kiểm tra runtime, FFmpeg, DPAPI và tính toàn vẹn gói.
+Nếu cổng 8765 đang bận, mở terminal trong thư mục và chạy:
+    START_LIVE.bat --port 8770
+Muốn giới hạn còn 2 luồng đồng thời:
+    START_LIVE.bat --max-streams 2
+Máy không có GPU NVIDIA: chọn CPU hoặc Copy, không chọn NVIDIA NVENC.
+Mặc định 4 luồng; số luồng thực tế phụ thuộc cấu hình và tốc độ upload.
+
+THÔNG TIN THÊM
+README.md: đầy đủ tính năng, quy tắc đặt lịch và hướng dẫn YouTube.
+BUILD_INFO.json: phiên bản các thành phần và thông tin gói.
+BUNDLE_MANIFEST.json: SHA-256 từng file ứng dụng/runtime khi đóng gói.
+licenses: giấy phép và thông tin nguồn thành phần bên thứ ba.
+Bản này dành cho Windows 10/11 x64; không phải bản cho macOS/Linux/Windows 32-bit.
