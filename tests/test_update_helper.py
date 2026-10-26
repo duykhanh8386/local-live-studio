@@ -81,7 +81,11 @@ class UpdateHelperTests(unittest.TestCase):
         try:
             expected = hashlib.sha256(source.read_bytes()).hexdigest()
             result = self.run_helper(source, expected, server.server_address[1])
-            self.assertEqual(result.returncode, 0, (result.stdout + result.stderr).decode(errors="replace"))
+            log = self.stage / "install.log"
+            diagnostic = (result.stdout + result.stderr).decode(errors="replace")
+            if log.is_file():
+                diagnostic += "\n" + log.read_text(encoding="utf-8", errors="replace")
+            self.assertEqual(result.returncode, 0, diagnostic)
             self.assertEqual(hashlib.sha256(self.target.read_bytes()).hexdigest(), expected)
             self.assertEqual(Path(str(self.target) + ".previous").read_bytes(), b"keep-old-executable")
             self.assertEqual((self.data / "keep.txt").read_text(), "keep-private-data")
