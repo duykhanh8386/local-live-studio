@@ -8,11 +8,16 @@ $taskFolder = [IO.Path]::GetDirectoryName($taskTarget)
 $taskBackup = $taskTarget + '.previous'
 $taskIncoming = Join-Path $taskFolder ('update-' + [guid]::NewGuid().ToString('N') + '.exe')
 $taskLog = Join-Path $taskStage 'install.log'
-$taskSwapped = $false
 try {
     if ([IO.Path]::GetDirectoryName($taskSource) -ne $taskStage -or $taskSource -eq $taskTarget) { throw 'Invalid update path.' }
     if ($updateSettings.sha256 -notmatch '^[0-9a-f]{64}$' -or $updateSettings.commit -notmatch '^[0-9a-f]{40}$') { throw 'Invalid update metadata.' }
-    if ((Get-FileHash -LiteralPath $taskSource -Algorithm SHA256).Hash.ToLowerInvariant() -ne $updateSettings.sha256) { throw 'Update SHA-256 mismatch.' }
+    # Use .NET directly: Windows PowerShell may inherit a PowerShell 7 module
+    # search path that does not contain the Get-FileHash module.
+    $taskHasher = [Security.Cryptography.SHA256]::Create()
+    $taskInput = [IO.File]::OpenRead($taskSource)
+    try { $taskHash = [BitConverter]::ToString($taskHasher.ComputeHash($taskInput)).Replace('-', '').ToLowerInvariant() }
+    finally { $taskInput.Dispose(); $taskHasher.Dispose() }
+    if ($taskHash -ne $updateSettings.sha256) { throw 'Update SHA-256 mismatch.' }
     $previous = Get-Process -Id $updateSettings.pid -ErrorAction SilentlyContinue
     if ($previous -and -not $previous.WaitForExit(120000)) { throw 'The application did not close. No files replaced.' }
     # A PyInstaller one-file bootloader can outlive its Python child briefly.
@@ -21,8 +26,10 @@ try {
     Copy-Item -LiteralPath $taskSource -Destination $taskIncoming
     Copy-Item -LiteralPath $taskTarget -Destination $taskBackup -Force
     Move-Item -LiteralPath $taskIncoming -Destination $taskTarget -Force
-    $taskSwapped = $true
     $env:LIVE_DATA_DIR = $updateSettings.data_dir
+    # The replacement must unpack a fresh one-file bundle instead of inheriting
+    # the previous instance's temporary PyInstaller runtime directory.
+    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
     $taskArguments = @('--port', [string][int]$updateSettings.port, '--max-streams', [string][int]$updateSettings.max_streams, '--no-browser')
     $newProcess = Start-Process -FilePath $taskTarget -WorkingDirectory $taskFolder -ArgumentList $taskArguments -WindowStyle Hidden -PassThru
     $taskDeadline = [DateTime]::UtcNow.AddSeconds(90)

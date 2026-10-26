@@ -48,6 +48,7 @@ class UpdateHelperTests(unittest.TestCase):
         source.write_bytes(b"different-file")
         result = self.run_helper(source, "0" * 64, 8765)
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Update SHA-256 mismatch", (self.stage / "install.log").read_text(encoding="utf-8-sig"))
         self.assertEqual(self.target.read_bytes(), b"keep-old-executable")
         self.assertEqual((self.data / "keep.txt").read_text(), "keep-private-data")
 
