@@ -90,6 +90,12 @@ function render() {
   if (focus) $('streams-body').querySelector(`[data-id="${focus.id}"][data-action="${focus.action}"]`)?.focus({preventScroll:true});
 }
 async function refresh() {
+  // A restarted server has a new local token. Read the public health endpoint
+  // before protected APIs so the old page can reload and obtain that token.
+  if(state.restarting) {
+    const health=await api('/api/health');
+    if(health.commit && health.commit!==state.installedCommit) {location.reload();return;}
+  }
   const [jobs,archives,update]=await Promise.all([api('/api/streams'),api('/api/archives'),api('/api/update')]);
   state.jobs=jobs; render(); renderArchives(archives); renderUpdate(update);
 }
@@ -196,7 +202,6 @@ function renderArchives(data) {
 
 function renderUpdate(data) {
   const info=data.installed, busy=['checking','downloading','installing'].includes(data.status);
-  if(state.restarting && state.installedCommit && info.commit!==state.installedCommit) {location.reload();return;}
   state.installedCommit=info.commit;
   $('update-version').textContent=`${info.version} · ${info.commit?info.commit.slice(0,8):'chưa có commit'} · ${info.packaged?'Windows EXE':'Bản mã nguồn'}`;
   $('update-message').textContent=data.message+(data.status==='downloading'?` ${size(data.downloaded)} / ${size(data.total)}`:'');

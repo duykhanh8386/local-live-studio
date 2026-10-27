@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 from unittest.mock import Mock, patch
 
 import uvicorn
@@ -16,6 +17,56 @@ from live.api import create_app
 from live.studio import chrome_path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def verify_update_ui(page):
+    """A new server rejects the previous local token after the EXE restart."""
+    progress = {"restarted": False, "stale_reads": 0}
+    info = {"version": "1.0.0", "commit": "a" * 40, "packaged": True}
+    update = {"installed": info, "status": "idle", "message": "Chờ kiểm tra",
+              "total": 100, "downloaded": 0, "can_install": False,
+              "release_url": "https://github.com/duykhanh8386/local-live-studio/releases"}
+
+    def serve(route):
+        path = urlparse(route.request.url).path
+        if path == "/api/health":
+            return route.fulfill(json={"service": "local-live-studio", "commit": ("b" if progress["restarted"] else "a") * 40})
+        if path == "/api/system" and progress["restarted"]:
+            response = route.fetch()
+            data = response.json()
+            data["token"] = "new-local-token"
+            return route.fulfill(response=response, json=data)
+        if progress["restarted"] and path not in {"/api/system", "/api/health"}:
+            if route.request.headers.get("x-local-token") != "new-local-token":
+                progress["stale_reads"] += 1
+                return route.fulfill(status=403, json={"detail": "Hãy tải lại trang local."})
+            if path == "/api/streams":
+                return route.fulfill(json=[])
+            if path == "/api/archives":
+                return route.fulfill(json={"tasks": [], "browser_message": "Sẵn sàng", "session": {}})
+        if path == "/api/update/check":
+            update.update(status="available", message="Có bản mới")
+        elif path == "/api/update/download":
+            update.update(status="ready", message="Đã tải và xác minh", can_install=True, downloaded=100)
+        elif path == "/api/update/install":
+            progress["restarted"] = True
+            info["commit"] = "b" * 40
+            update.update(status="current", message="Bạn đang dùng bản mới nhất", can_install=False)
+            return route.fulfill(json={"ok": True})
+        elif path != "/api/update":
+            return route.fallback()
+        return route.fulfill(json=update)
+
+    page.route("**/api/**", serve)
+    page.locator("#update-check").click()
+    expect(page.locator("#update-download")).to_be_enabled()
+    page.locator("#update-download").click()
+    expect(page.locator("#update-install")).to_be_enabled()
+    page.locator("#update-install").click()
+    with page.expect_navigation(wait_until="domcontentloaded"):
+        page.locator("#confirm-action").click()
+    expect(page.locator("#update-version")).to_contain_text("bbbbbbbb")
+    assert progress["restarted"] and progress["stale_reads"] == 0, progress
 
 
 def main():
@@ -91,11 +142,12 @@ def main():
                         page.set_viewport_size({"width": 390, "height": 844})
                         page.screenshot(path=str(qa / "mobile.png"), full_page=True)
                         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "Page overflows mobile viewport"
+                        verify_update_ui(page)
                         assert not errors, errors
                         studio.trim.assert_not_called()
                         studio.publish.assert_not_called()
                         report = {"passed": True, "js_errors": errors,
-                                  "checks": ["login and save background session", "permanent-cut consent", "queue / logs / cancel", "schedule options roundtrip", "default auto-public", "desktop / mobile"]}
+                                  "checks": ["login and save background session", "permanent-cut consent", "queue / logs / cancel", "schedule options roundtrip", "default auto-public", "desktop / mobile", "update buttons and new local token after restart"]}
                         (qa / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
                         print(json.dumps(report, ensure_ascii=False))
                     finally:
