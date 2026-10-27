@@ -87,7 +87,7 @@ class StudioBrowser:
         port_file.unlink(missing_ok=True)
         arguments = [executable, f"--user-data-dir={self.profile.resolve()}",
             "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", "--no-first-run",
-            "--no-default-browser-check", "--disable-blink-features=AutomationControlled",
+            "--no-default-browser-check", "--test-type", "--disable-blink-features=AutomationControlled",
             "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"]
         if self.background:
             arguments.append("--headless=new")
@@ -345,10 +345,8 @@ class StudioBrowser:
             self.process = None
 
     def _goto(self, identifier, section):
-        if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", str(self.expected_channel_id or "")):
-            url = f"https://studio.youtube.com/channel/{self.expected_channel_id}/video/{identifier}/{section}?hl=en"
-        else:
-            url = f"https://studio.youtube.com/video/{identifier}/{section}?hl=en"
+        sec = "claims" if section == "copyright" else section
+        url = f"https://studio.youtube.com/video/{identifier}/{sec}?hl=en"
         self.page.goto(url, wait_until="domcontentloaded")
         self._check_url(identifier, section)
 
