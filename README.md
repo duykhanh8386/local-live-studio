@@ -102,9 +102,14 @@ URL mặc định dành cho YouTube là `rtmps://a.rtmps.youtube.com:443/live2`.
 |---|---|
 | CPU · H.264 | Mặc định; chuyển video sang H.264/AAC, 30 fps, keyframe 2 giây. Chọn bitrate và 720p/1080p/kích thước gốc. |
 | NVIDIA · NVENC | Máy có GPU NVIDIA và driver hỗ trợ. Nếu không dùng được, log sẽ báo lỗi; chọn lại CPU. |
+| Intel · Quick Sync / Arc | Máy có GPU Intel hỗ trợ Quick Sync và driver hoạt động, gồm Arc A770. Mã hóa H.264 bằng GPU, vẫn áp dụng bitrate/độ phân giải đã chọn. Nếu driver không khởi tạo được, tool báo lỗi; chọn lại CPU hoặc Copy. |
 | Copy · giữ file gốc | Ít tốn CPU; cần video H.264 với audio AAC/MP3. Giữ bitrate, kích thước, fps và keyframe của file gốc. Hãy dùng file có thông số phù hợp nền tảng. |
 
 Hỗ trợ MP4, MKV, MOV, AVI, WEBM, M4V, TS có thời lượng hợp lệ. Video không có audio được thêm audio im lặng. File nằm ở vị trí cũ, không bị upload, sao chép hay xóa khi xóa lịch. Hiện chưa hỗ trợ playlist nhiều file cho cùng một luồng.
+
+Nếu live giật, nhìn chỉ số tốc độ tại từng luồng: cần giữ gần **1,00x**. Ví dụ **0,43x** nghĩa là mỗi giây chỉ xuất khoảng 0,43 giây nội dung, có thể do mã hóa không kịp hoặc đường upload nghẽn. Từ bản 1.0.2, bảng hiển thị bộ mã hóa đang dùng, đo tốc độ trong cửa sổ khoảng 10 giây và cảnh báo **Phát chậm** khi dưới 0,90x sau 15 giây khởi động. Cảnh báo tự hết khi tốc độ phục hồi; đây chưa phải kết quả đo chất lượng tại máy chủ YouTube hay trình duyệt người xem. Kiểm tra thêm Stream health trong YouTube Studio.
+
+Máy dùng Intel Arc A770 nên chọn **Intel · Quick Sync / Arc** trong **Tùy chọn máy phát**, không chọn NVIDIA. Dừng luồng trước khi sửa; lịch cũ vẫn giữ bộ mã hóa cũ cho đến khi bạn đổi. CPU đã được bỏ giới hạn cố định 2 luồng mã hóa, giới hạn riêng các luồng giải mã/lọc để giảm tranh chấp khi phát nhiều video. Các cảnh báo FFmpeg lặp liên tục vì trễ được gộp log thay vì ghi SQLite từng gói; các lỗi khác vẫn được ghi. Tổng bitrate các luồng cộng audio/overhead phải thấp hơn upload ổn định thực tế. Chọn Copy chỉ khi codec, bitrate, fps và keyframe của file gốc phù hợp YouTube; Copy không giảm lưu lượng upload của file.
 
 Máy phải bật, không Sleep, ổ chứa video còn truy cập được, ứng dụng đang chạy và có mạng để tự phát đúng giờ. Lịch theo thời lượng mở muộn sẽ phát phần thời gian còn lại; nếu toàn bộ thời gian đã qua thì báo **Lỡ lịch**. Chạy thủ công bắt đầu lại một phiên với đủ thời lượng đã đặt. Khi kết nối lỗi, nếu bật tự thử lại thì ứng dụng thử tối đa 5 lần, chờ 2/4/8/16/30 giây; mỗi lần nối lại phát video từ đầu.
 

@@ -128,7 +128,7 @@ def create_app(data_dir: Path | None = None, *, start_scheduler: bool = True,
         values = payload.model_dump()
         if values["mode"] not in {"public", "continuous"}:
             raise ValueError("Chọn Live theo thời lượng hoặc Live 24/7.")
-        if values["encoder"] not in {"libx264", "h264_nvenc", "copy"}:
+        if values["encoder"] not in {"libx264", "h264_nvenc", "h264_qsv", "copy"}:
             raise ValueError("Bộ mã hóa chưa được hỗ trợ.")
         if values["resolution"] not in {"original", "720p", "1080p"}:
             raise ValueError("Độ phân giải không hợp lệ.")

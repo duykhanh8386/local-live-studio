@@ -10,6 +10,7 @@ from typing import Callable
 from .media import HIDDEN_PROCESS, build_command, destination, probe_video, redact
 from .storage import SecretBox, Store
 from .processes import ProcessGroup
+from .health import OutputHealth
 
 ACTIVE = {"starting", "streaming", "retrying", "stopping"}
 
@@ -171,18 +172,37 @@ class Engine:
                 self.processes.add(process)
                 last_progress = [time.monotonic()]
                 errors = []
+                health = OutputHealth()
+                with self.lock:
+                    run.metrics.update(realtime_speed=None, warning="")
 
                 def read_errors():
+                    last_lag_log = None
+                    skipped_lag_logs = 0
                     for line in process.stderr:
                         safe = redact(line.strip(), key)
                         if safe:
                             errors.append(safe)
                             del errors[:-8]
+                            # FFmpeg can print one lag warning per packet. Avoid
+                            # committing each one to SQLite while keeping errors.
+                            if "Resumed reading at pts" in safe and "after a lag of" in safe:
+                                now = time.monotonic()
+                                if last_lag_log is not None and now - last_lag_log < 30:
+                                    skipped_lag_logs += 1
+                                    continue
+                                if skipped_lag_logs:
+                                    self.store.log(stream_id, f"Đã gộp {skipped_lag_logs} cảnh báo FFmpeg bị chậm tương tự.")
+                                    skipped_lag_logs = 0
+                                last_lag_log = now
                             self.store.log(stream_id, safe)
+                    if skipped_lag_logs:
+                        self.store.log(stream_id, f"Đã gộp {skipped_lag_logs} cảnh báo FFmpeg bị chậm tương tự.")
 
                 def read_progress():
                     values = {}
                     marked_live = False
+                    previous_warning = False
                     for line in process.stdout:
                         name, _, value = line.strip().partition("=")
                         values[name] = value
@@ -200,8 +220,13 @@ class Engine:
                                        "bitrate": float(bitrate or 0)}
                         except ValueError:
                             continue
+                        metrics.update(health.update(last_progress[0], max(0, elapsed)))
                         with self.lock:
                             run.metrics.update(metrics)
+                        warning = metrics.get("warning", "")
+                        if warning and not previous_warning:
+                            self.store.log(stream_id, warning)
+                        previous_warning = bool(warning)
                         if frame > 0 and not marked_live and not run.stop.is_set():
                             self.store.update(stream_id, status="streaming", last_error="")
                             marked_live = True

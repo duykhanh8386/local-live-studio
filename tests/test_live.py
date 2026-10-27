@@ -175,6 +175,25 @@ class LocalLiveTests(unittest.TestCase):
         self.assertEqual({s["codec_type"] for s in streams}, {"audio", "video"})
         self.assertEqual(next(s for s in streams if s["codec_type"] == "audio")["codec_name"], "aac")
 
+    def test_intel_selection_persists_and_unknown_encoder_is_rejected(self):
+        stream_id = self.add(encoder="h264_qsv")
+        self.assertEqual(self.job(stream_id)["encoder"], "h264_qsv")
+        response = self.client.post("/api/streams", json=self.payload(encoder="unsupported"))
+        self.assertEqual(response.status_code, 400)
+
+    @unittest.skipUnless(os.environ.get("LIVE_TEST_INTEL_QSV") == "1", "Requires Intel Quick Sync hardware")
+    def test_real_intel_encoding_with_audio_and_requested_resolution(self):
+        stream_id = self.add(encoder="h264_qsv", resolution="1080p", bitrate=12000)
+        self.client.post(f"/api/streams/{stream_id}/start")
+        done = self.wait_status(stream_id, {"completed", "failed"})
+        self.assertEqual(done["status"], "completed", done["last_error"])
+        output = self.probe_output(stream_id)
+        video = next(s for s in output["streams"] if s["codec_type"] == "video")
+        audio = next(s for s in output["streams"] if s["codec_type"] == "audio")
+        self.assertEqual((video["codec_name"], video["height"], video["r_frame_rate"]), ("h264", 1080, "30/1"))
+        self.assertEqual(audio["codec_name"], "aac")
+        self.assertGreater(float(output["format"]["duration"]), 2.5)
+
     def test_continuous_stop_conflicts_capacity_and_owned_processes(self):
         unrelated = subprocess.Popen([executable("ffmpeg"), "-hide_banner", "-loglevel", "error",
             "-re", "-f", "lavfi", "-i", "anullsrc", "-f", "null", "-"],

@@ -19,6 +19,37 @@ from live.studio import chrome_path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def verify_stream_health_ui(page):
+    page.locator("details.advanced").first.locator("summary").click()
+    page.locator("#encoder").select_option("h264_qsv")
+    expect(page.locator("#encoder-help")).to_contain_text("Arc A770")
+    fixture = {"id": "health-fixture", "name": "Luồng mô phỏng", "source_path": "fixture.mp4",
+               "media": {"name": "fixture.mp4", "width": 1920, "height": 1080, "duration": 60, "size": 1000},
+               "encoder": "h264_qsv", "bitrate": 12000, "mode": "continuous", "duration": 60,
+               "start_at": time.time(), "key_hint": "•••• test", "status": "streaming", "last_error": "",
+               "metrics": {"elapsed": 20, "fps": 13, "speed": 0.43, "realtime_speed": 0.43,
+                           "warning": "Phát chậm (0.43x trong khoảng 10 giây gần đây)"}}
+
+    def serve(route):
+        route.fulfill(json=[fixture])
+
+    page.route("**/api/streams", serve)
+    try:
+        page.locator("#refresh").click()
+        row = page.locator("#streams-body tr")
+        expect(row).to_contain_text("Intel · Quick Sync / Arc")
+        expect(row.locator(".status-chip")).to_have_text("Phát chậm")
+        expect(row).to_contain_text("13 fps · 0.43x")
+        fixture["metrics"].update(realtime_speed=1.0, warning="")
+        page.locator("#refresh").click()
+        expect(row.locator(".status-chip")).to_have_text("Đang phát")
+        expect(row).to_contain_text("1.00x")
+    finally:
+        page.unroute("**/api/streams", serve)
+        page.locator("#encoder").select_option("libx264")
+        page.locator("#refresh").click()
+
+
 def verify_update_ui(page):
     """A new server rejects the previous local token after the EXE restart."""
     progress = {"restarted": False, "stale_reads": 0}
@@ -107,6 +138,7 @@ def main():
                         page.on("pageerror", lambda error: errors.append(str(error)))
                         page.goto(base)
                         expect(page.locator("#tool-status")).to_contain_text("sẵn sàng")
+                        verify_stream_health_ui(page)
                         expect(page.locator("#archive-publish")).to_be_checked()
                         page.locator("#studio-email").fill("fixture@example.test")
                         page.locator("#studio-password").fill("synthetic-password")
@@ -165,7 +197,7 @@ def main():
                         studio.trim.assert_not_called()
                         studio.publish.assert_not_called()
                         report = {"passed": True, "js_errors": errors,
-                                  "checks": ["email/password form clears inputs", "Tuất channel selection and session verification", "login and save background session", "permanent-cut consent", "queue / logs / cancel", "schedule options roundtrip", "default auto-public", "desktop / mobile", "update buttons and new local token after restart"]}
+                                  "checks": ["Intel encoder selection and slow-output warning recovery", "email/password form clears inputs", "Tuất channel selection and session verification", "login and save background session", "permanent-cut consent", "queue / logs / cancel", "schedule options roundtrip", "default auto-public", "desktop / mobile", "update buttons and new local token after restart"]}
                         (qa / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
                         print(json.dumps(report, ensure_ascii=False))
                     finally:

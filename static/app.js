@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 const state = {token: '', jobs: [], archives: [], mode: 'public', editId: null, folder: '', parent: '', logId: null, logKind: 'streams', polling: false};
 const ACTIVE = new Set(['starting', 'streaming', 'retrying', 'stopping']);
 const LABELS = {scheduled:'Chờ lịch',queued:'Chờ máy phát',starting:'Đang kết nối',streaming:'Đang phát',retrying:'Kết nối lại',stopping:'Đang dừng',stopped:'Đã dừng',completed:'Hoàn tất',failed:'Lỗi',interrupted:'Bị ngắt',missed:'Lỡ lịch'};
+const ENCODERS = {libx264:'CPU · H.264',h264_qsv:'Intel · Quick Sync / Arc',h264_nvenc:'NVIDIA · NVENC',copy:'Copy · giữ file gốc'};
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const date = timestamp => timestamp ? new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(timestamp*1000)) : '—';
 const duration = value => { const seconds = Math.max(0,Math.floor(value || 0)); return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(n=>String(n).padStart(2,'0')).join(':'); };
@@ -39,6 +40,7 @@ function resetForm() {
 function encoderChanged() {
   const copy=$('encoder').value==='copy'; $('bitrate').disabled=copy; $('resolution').disabled=copy;
   $('bitrate-help').textContent=copy?'Copy giữ bitrate và độ phân giải của video gốc.':'Chọn theo tốc độ upload và cấu hình máy.';
+  $('encoder-help').textContent=({libx264:'Dùng CPU để mã hóa lại video. Máy có GPU nên chọn bộ mã hóa tương ứng.',h264_qsv:'Dùng GPU Intel có Quick Sync, gồm Arc A770. Cần driver Intel đang hoạt động.',h264_nvenc:'Dùng GPU NVIDIA có NVENC. Không dùng cho GPU Intel hoặc AMD.',copy:'Nhẹ CPU nhất; giữ cả bitrate và keyframe gốc. File phải phù hợp nền tảng livestream.'})[$('encoder').value];
 }
 function payload() {
   const parts=$('duration').value.split(':').map(Number);
@@ -83,9 +85,11 @@ function render() {
     const metrics=job.metrics||{}, active=ACTIVE.has(job.status), elapsed=metrics.elapsed||0;
     const percent=job.mode==='continuous'?0:Math.min(100,elapsed/job.duration*100);
     const budget=job.encoder==='copy'?'Gốc · Copy':`${job.bitrate.toLocaleString('vi-VN')} kbps`;
+    const speed=metrics.realtime_speed ?? metrics.speed ?? 0;
+    const warning=job.status==='streaming'?metrics.warning:'';
     const actions=(active?iconButton('stop',job.id,'Dừng phát','■','stop',job.status==='stopping'):iconButton('start',job.id,'Chạy ngay','▶','start'))+
       iconButton('logs',job.id,'Xem log','≡')+iconButton('edit',job.id,'Sửa lịch','✎','',active)+iconButton('delete',job.id,'Xóa lịch','⌫','delete',active);
-    return `<tr><td>#${escapeHTML(job.id)}</td><td><span class="stream-title">${escapeHTML(job.name)}</span><span class="stream-file" title="${escapeHTML(job.source_path)}">▱ ${escapeHTML(job.media.name)}</span><span class="stream-meta">${job.media.width} × ${job.media.height} · ${duration(job.media.duration)} · ${size(job.media.size)}</span></td><td><span class="key-chip">${escapeHTML(job.key_hint)}</span><div class="live-date">${date(job.start_at)}</div><span class="mode-pill ${job.mode==='continuous'?'continuous':''}">${job.mode==='continuous'?'24/7 · LIÊN TỤC':duration(job.duration)}</span></td><td><div class="metrics-line">BITRATE &nbsp; <strong>${budget}</strong></div><div class="metrics-line">${duration(elapsed)} ${job.mode==='public'?'/ '+duration(job.duration):'đã phát'}</div><div class="progress-track"><span style="width:${percent}%"></span></div><div class="metrics-line">${Number(metrics.fps||0).toFixed(0)} fps · ${Number(metrics.speed||0).toFixed(2)}x${metrics.bytes_sent?' · '+size(metrics.bytes_sent):''}</div></td><td><span class="status-chip ${escapeHTML(job.status)}">${LABELS[job.status]||escapeHTML(job.status)}</span>${job.last_error?`<span class="error-note">${escapeHTML(job.last_error)}</span>`:''}</td><td><div class="actions">${actions}</div></td></tr>`;
+    return `<tr><td>#${escapeHTML(job.id)}</td><td><span class="stream-title">${escapeHTML(job.name)}</span><span class="stream-file" title="${escapeHTML(job.source_path)}">▱ ${escapeHTML(job.media.name)}</span><span class="stream-meta">${job.media.width} × ${job.media.height} · ${duration(job.media.duration)} · ${size(job.media.size)}</span></td><td><span class="key-chip">${escapeHTML(job.key_hint)}</span><div class="live-date">${date(job.start_at)}</div><span class="mode-pill ${job.mode==='continuous'?'continuous':''}">${job.mode==='continuous'?'24/7 · LIÊN TỤC':duration(job.duration)}</span></td><td><div class="metrics-line">BITRATE &nbsp; <strong>${budget}</strong></div><div class="metrics-line">${escapeHTML(ENCODERS[job.encoder]||job.encoder)}</div><div class="metrics-line">${duration(elapsed)} ${job.mode==='public'?'/ '+duration(job.duration):'đã phát'}</div><div class="progress-track"><span style="width:${percent}%"></span></div><div class="metrics-line" title="Tốc độ gần đây; khoảng 1,00x mới theo kịp thời gian thực">${Number(metrics.fps||0).toFixed(0)} fps · ${Number(speed).toFixed(2)}x${metrics.bytes_sent?' · '+size(metrics.bytes_sent):''}</div></td><td><span class="status-chip ${warning?'slow':escapeHTML(job.status)}">${warning?'Phát chậm':LABELS[job.status]||escapeHTML(job.status)}</span>${warning?`<span class="error-note">${escapeHTML(warning)}</span>`:''}${job.last_error?`<span class="error-note">${escapeHTML(job.last_error)}</span>`:''}</td><td><div class="actions">${actions}</div></td></tr>`;
   }).join('');
   if (focus) $('streams-body').querySelector(`[data-id="${focus.id}"][data-action="${focus.action}"]`)?.focus({preventScroll:true});
 }

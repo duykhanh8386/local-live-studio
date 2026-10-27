@@ -80,9 +80,16 @@ def redact(message: str, key: str = "") -> str:
 
 
 def build_command(job: dict, media: dict, output: str, remaining: float | None) -> list[str]:
+    # Keep decoder/filter pools bounded when several streams share the machine.
+    # The old fixed two-thread encoder could not use an otherwise idle CPU.
+    cores = os.cpu_count() or 2
+    encode_threads = max(1, min(8, cores // 2))
+    decode_threads = max(1, min(4, cores // 4))
     command = [executable("ffmpeg"), "-hide_banner", "-loglevel", "warning",
                "-nostats", "-progress", "pipe:1", "-stats_period", "1",
-               "-re", "-stream_loop", "-1", "-i", media["path"]]
+               "-filter_threads", str(min(2, encode_threads)),
+               "-re", "-stream_loop", "-1", "-threads:v", str(decode_threads),
+               "-i", media["path"]]
     if not media["has_audio"]:
         command += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
     command += ["-map", "0:v:0", "-map", "0:a:0" if media["has_audio"] else "1:a:0"]
@@ -94,15 +101,21 @@ def build_command(job: dict, media: dict, output: str, remaining: float | None) 
     else:
         height = {"720p": 720, "1080p": 1080}.get(job["resolution"])
         scale = f"scale=-2:{height}" if height else "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+        pixel_format = "nv12" if job["encoder"] == "h264_qsv" else "yuv420p"
         command += ["-vf", scale, "-r", "30", "-c:v", job["encoder"],
-                    "-pix_fmt", "yuv420p", "-g", "60", "-b:v", f'{job["bitrate"]}k',
+                    "-pix_fmt", pixel_format, "-g", "60", "-b:v", f'{job["bitrate"]}k',
                     "-maxrate", f'{job["bitrate"]}k', "-bufsize", f'{job["bitrate"] * 2}k']
         if job["encoder"] == "libx264":
-            command += ["-preset", "veryfast", "-tune", "zerolatency", "-threads", "2",
+            command += ["-preset", "veryfast", "-tune", "zerolatency", "-threads:v", str(encode_threads),
                         "-sc_threshold", "0", "-x264-params", "nal-hrd=cbr:force-cfr=1"]
+        elif job["encoder"] == "h264_qsv":
+            # Software decoding accepts all supported source codecs; encoding is
+            # offloaded to Intel Quick Sync (including Arc) at the selected size/rate.
+            command += ["-preset", "veryfast", "-look_ahead", "0", "-async_depth", "4",
+                        "-scenario", "livestreaming", "-forced_idr", "1", "-bf", "0"]
         else:
             command += ["-preset", "p4", "-rc", "cbr"]
-        command += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+        command += ["-c:a", "aac", "-threads:a", "1", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
     if remaining is not None:
         command += ["-t", f"{max(0.1, remaining):.3f}"]
     return command + ["-f", "flv", "-flvflags", "no_duration_filesize", "-rw_timeout", "15000000", output]

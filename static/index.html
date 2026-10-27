@@ -39,7 +39,7 @@
         </div>
         <details class="advanced"><summary>Tùy chọn máy phát <span>Máy chủ, mã hóa & kết nối</span></summary><div class="form-grid">
           <label class="field span-6"><span>URL MÁY CHỦ RTMP / RTMPS</span><input id="server-url" value="rtmps://a.rtmps.youtube.com:443/live2" required></label>
-          <label class="field span-3"><span>BỘ MÃ HÓA</span><select id="encoder"><option value="libx264">CPU · H.264</option><option value="h264_nvenc">NVIDIA · NVENC</option><option value="copy">Copy · giữ file gốc</option></select></label>
+          <label class="field span-3"><span>BỘ MÃ HÓA</span><select id="encoder"><option value="libx264">CPU · H.264</option><option value="h264_qsv">Intel · Quick Sync / Arc</option><option value="h264_nvenc">NVIDIA · NVENC</option><option value="copy">Copy · giữ file gốc</option></select><small id="encoder-help">CPU mã hóa lại video. Máy có GPU nên chọn bộ mã hóa tương ứng.</small></label>
           <label class="field span-3"><span>ĐỘ PHÂN GIẢI</span><select id="resolution"><option value="1080p">Full HD · 1080p</option><option value="720p">HD · 720p</option><option value="original">Giữ kích thước gốc</option></select></label>
           <label class="check-field span-12"><input type="checkbox" id="auto-retry" checked><span>Tự kết nối lại khi mạng bị ngắt <small>Thử lại tối đa 5 lần cho mỗi phiên phát.</small></span></label>
         </div></details>
