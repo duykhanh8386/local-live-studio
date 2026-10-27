@@ -72,7 +72,7 @@ class StudioBrowserTests(unittest.TestCase):
                 <div id="options" hidden><ytcp-radio-button name="PUBLIC" role="radio" onclick="document.body.dataset.chosen='PUBLIC'">Public</ytcp-radio-button><button onclick="document.querySelector('#options').hidden=true">Done</button></div>
                 <button onclick="if(document.body.dataset.chosen==='PUBLIC') fetch('/persist-visibility').then(()=>this.disabled=true)">Save</button>
                 </main>''')
-            elif url.startswith(f"https://studio.youtube.com/video/{VIDEO}/copyright"):
+            elif f"/video/{VIDEO}/copyright" in url:
                 route.fulfill(content_type="text/html", body=self.html)
             else:
                 route.abort()

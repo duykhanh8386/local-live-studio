@@ -213,7 +213,7 @@ class StudioBrowser:
                     needs_nav = False
 
             if needs_nav:
-                target = (f"https://studio.youtube.com/channel/{self.expected_channel_id}/dashboard"
+                target = (f"https://studio.youtube.com/channel/{self.expected_channel_id}/"
                           if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", self.expected_channel_id) else "https://studio.youtube.com")
                 self.page.goto(target, wait_until="domcontentloaded")
             end = time.monotonic() + timeout
@@ -228,6 +228,20 @@ class StudioBrowser:
                                 break
                 except Exception:
                     pass
+
+                # Check if YouTube returned a 404 / broken link error page (dog illustration)
+                is_error_page = self.page.evaluate("""() => {
+                    const text = document.body ? document.body.innerText : '';
+                    const hasDog = Boolean(document.querySelector('img[src*="error"], img[src*="monkey"], img[src*="unplugged"]'));
+                    return hasDog || /This page isn't available|Bu sayfa kullanılamıyor|Trang này không khả dụng/i.test(text);
+                }""")
+                if is_error_page:
+                    if self.expected_channel_id and not getattr(self, "_retried_clean_channel", False):
+                        self._retried_clean_channel = True
+                        self.page.goto(f"https://studio.youtube.com/channel/{self.expected_channel_id}/", wait_until="domcontentloaded")
+                        self.page.wait_for_timeout(500)
+                        continue
+                    raise StudioIssue("YouTube báo không tìm thấy trang hoặc kênh này. Kiểm tra lại Channel ID hoặc quyền truy cập của tài khoản.", "needs_login")
 
                 parsed = urlparse(self.page.url)
                 elapsed = time.monotonic() - start_time
@@ -329,8 +343,11 @@ class StudioBrowser:
             self.process = None
 
     def _goto(self, identifier, section):
-        self.page.goto(f"https://studio.youtube.com/video/{identifier}/{section}?hl=en",
-                       wait_until="domcontentloaded")
+        if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", str(self.expected_channel_id or "")):
+            url = f"https://studio.youtube.com/channel/{self.expected_channel_id}/video/{identifier}/{section}?hl=en"
+        else:
+            url = f"https://studio.youtube.com/video/{identifier}/{section}?hl=en"
+        self.page.goto(url, wait_until="domcontentloaded")
         self._check_url(identifier, section)
 
     def _check_url(self, identifier, section):

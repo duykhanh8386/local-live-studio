@@ -265,7 +265,7 @@ class ArchiveQueue:
                 self.session = {**self.session, "connected": False}
                 self.store.save_setting("studio_session", self.session)
                 self.browser_message = (str(exc) if isinstance(exc, StudioIssue) else
-                    "Chưa xác nhận được phiên chạy nền. Mở lại Studio, đăng nhập và chọn kênh.")
+                    f"Chưa xác nhận được phiên chạy nền: {exc}. Mở lại Studio, đăng nhập và chọn kênh.")
             finally:
                 self.auth_busy = False
 

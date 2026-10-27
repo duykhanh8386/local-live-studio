@@ -199,6 +199,14 @@ function renderArchives(data) {
   state.archives=data.tasks; $('studio-status').textContent=data.browser_message;
   const session=data.session||{};
   state.session=session;
+  if(state.lastAuthBusy && !data.auth_busy){
+    if(session.connected){
+      toast(`Đã kết nối thành công kênh ${session.channel_id || ''}! Đang tự động kiểm tra và xử lý các video.`, 'success');
+    } else if(data.browser_message){
+      toast(data.browser_message, 'error');
+    }
+  }
+  state.lastAuthBusy = !!data.auth_busy;
   const pending=!!data.login_pending, busy=!!data.auth_busy, tuatPending=pending&&data.auth_source==='tuat';
   state.tuatPending=tuatPending;
   $('studio-connect').disabled=!pending||busy; $('studio-cancel-login').hidden=!pending;
