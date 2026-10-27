@@ -135,6 +135,52 @@ class StudioBrowserTests(unittest.TestCase):
                 self.driver.verify_login(timeout=1)
         self.assertEqual(error.exception.status, "needs_login")
 
+    def test_login_submits_email_and_password_only_to_google_fields(self):
+        self.context.route("https://accounts.google.com/**", lambda route: route.fulfill(
+            content_type="text/html", body='''<input type="email"><button id="identifierNext"
+            onclick="document.querySelector('#password-step').hidden=false">Next</button>
+            <div id="password-step" hidden><input type="password"><button id="passwordNext"
+            onclick="document.body.dataset.submitted='yes'">Next</button></div>'''))
+        self.driver.login("fixture@example.test", "synthetic-password")
+        self.assertEqual(self.page.locator('input[type="email"]').input_value(), "fixture@example.test")
+        self.assertEqual(self.page.locator('input[type="password"]').input_value(), "synthetic-password")
+        self.assertEqual(self.page.locator("body").get_attribute("data-submitted"), "yes")
+
+    def test_google_rejection_is_reported_without_typing_credentials(self):
+        self.context.route("https://accounts.google.com/**", lambda route: route.fulfill(
+            content_type="text/html", body='<p>This browser or app may not be secure</p><input type="email">'))
+        with self.assertRaises(StudioIssue) as error:
+            self.driver.login("fixture@example.test", "synthetic-password")
+        self.assertEqual(error.exception.status, "needs_login")
+        self.assertIn("tool Tuất", str(error.exception))
+        self.assertEqual(self.page.locator('input[type="email"]').input_value(), "")
+
+    def test_imported_cookies_are_used_only_in_dedicated_context_and_channel_is_verified(self):
+        # This class shares one synthetic browser; the production method closes
+        # its own dedicated process before importing into a fresh connection.
+        self.driver.close = lambda: None
+        self.driver.import_session(CHANNEL, [{"name": "SAPISID", "value": "synthetic-cookie", "domain": ".youtube.com", "path": "/"}])
+        self.assertTrue(self.driver.background)
+        self.assertEqual(self.driver.expected_channel_id, CHANNEL)
+        self.assertTrue(any(cookie["name"] == "SAPISID" for cookie in self.context.cookies("https://studio.youtube.com")))
+        self.assertEqual(self.driver.verify_login(timeout=1), {"channel_id": CHANNEL})
+
+    def test_two_factor_challenge_is_left_for_owner(self):
+        self.context.route("https://accounts.google.com/**", lambda route: route.fulfill(
+            content_type="text/html", body='''<input type="email"><button id="identifierNext"
+            onclick="history.replaceState(null,'','/v3/signin/challenge/totp'); document.body.innerHTML='<input id=otp>'">Next</button>'''))
+        self.driver.login("fixture@example.test", "synthetic-password")
+        self.assertEqual(self.page.locator("#otp").input_value(), "")
+
+    def test_redirected_untrusted_password_page_never_receives_password(self):
+        self.context.route("https://accounts.google.com/**", lambda route: route.fulfill(
+            content_type="text/html", body='''<input type="email"><button id="identifierNext"
+            onclick="location.href='https://accounts.google.com.attacker.invalid/login'">Next</button>'''))
+        self.context.route("https://accounts.google.com.attacker.invalid/**", lambda route: route.fulfill(
+            content_type="text/html", body='<input type="password">'))
+        self.driver.login("fixture@example.test", "synthetic-password")
+        self.assertEqual(self.page.locator('input[type="password"]').input_value(), "")
+
     def test_verify_login_can_read_channel_from_successful_studio_request(self):
         self.dashboard_context = ""
         self.request_context = True

@@ -32,6 +32,7 @@ class StudioProfileTests(unittest.TestCase):
             try:
                 with patch("live.studio.subprocess.Popen", side_effect=isolated_launch):
                     driver.connect()
+                    self.assertFalse(driver.page.evaluate("navigator.webdriver"))
                     first_process = driver.process
                     driver.page.context.add_cookies([dict(name="session_fixture", value="synthetic-local-session",
                         url="https://studio.youtube.com", expires=time.time() + 3600)])

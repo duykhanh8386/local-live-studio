@@ -60,9 +60,21 @@
       <div class="surface table-surface"><div class="table-scroll"><table><thead><tr><th>ID</th><th>THÔNG TIN LỊCH</th><th>KEY / THỜI GIAN LIVE</th><th>TIẾN ĐỘ MÁY PHÁT</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody id="streams-body"></tbody></table></div><div id="empty-state" class="empty-state"><span class="empty-symbol">▻</span><h3>Sẵn sàng cho buổi live đầu tiên</h3><p>Chọn video từ máy và thêm lịch phát ở phía trên.<br>Các luồng của bạn sẽ xuất hiện tại đây.</p></div><div class="table-footer"><span id="results-count">0 lịch phát</span><span>Chạy trên localhost <span class="dot-separator">·</span> Video nằm trên máy của bạn</span></div></div>
     </section>
     <section class="surface archive-panel" aria-labelledby="archives-title">
-      <div class="schedule-heading"><div><span class="eyebrow">SAU KHI LIVE KẾT THÚC</span><h2 id="archives-title">Xử lý bản lưu YouTube</h2><p>Cắt đoạn bị claim, chờ YouTube xử lý rồi kiểm tra lại trước khi công khai.</p></div><div class="button-group studio-controls"><button id="studio-open" type="button" class="button button-outline">↗ &nbsp; Mở Studio / Đăng nhập</button><button id="studio-connect" type="button" class="button button-primary" disabled>Đăng nhập xong — chạy nền</button><button id="studio-cancel-login" type="button" class="button button-soft" hidden>Hủy đăng nhập</button></div></div>
+      <div class="schedule-heading"><div><span class="eyebrow">SAU KHI LIVE KẾT THÚC</span><h2 id="archives-title">Xử lý bản lưu YouTube</h2><p>Cắt đoạn bị claim, chờ YouTube xử lý rồi kiểm tra lại trước khi công khai.</p></div><div class="button-group studio-controls"><button id="studio-open" type="button" class="button button-outline">↗ &nbsp; Mở YouTube thủ công</button><button id="studio-connect" type="button" class="button button-primary" disabled>Đăng nhập xong — chạy nền</button><button id="studio-cancel-login" type="button" class="button button-soft" hidden>Hủy đăng nhập</button></div></div>
+      <form id="studio-login-form" class="studio-login-form">
+        <label class="field"><span>EMAIL TÀI KHOẢN YOUTUBE</span><input id="studio-email" type="email" maxlength="320" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Email đăng nhập như tool Tuất" required></label>
+        <label class="field"><span>MẬT KHẨU</span><input id="studio-password" type="password" maxlength="4096" autocomplete="new-password" required></label>
+        <button id="studio-login" type="submit" class="button button-primary">Đăng nhập YouTube</button>
+        <p class="field-help">Email và mật khẩu chỉ dùng cho lượt đăng nhập, không được lưu. Nếu có xác minh hai bước, hoàn tất trong cửa sổ YouTube rồi chọn đúng kênh và bấm Đăng nhập xong — chạy nền.</p>
+      </form>
+      <div class="tuat-session-controls">
+        <button id="studio-tuat-load" type="button" class="button button-outline">Lấy kênh đã đăng nhập trong tool Tuất</button>
+        <label class="field"><span>KÊNH YOUTUBE TRONG TOOL TUẤT</span><select id="studio-tuat-channel" disabled aria-label="Kênh YouTube trong tool Tuất"><option value="">Bấm Lấy kênh để chọn phiên có sẵn</option></select></label>
+        <button id="studio-tuat-connect" type="button" class="button button-primary" disabled>Dùng phiên kênh đã chọn</button>
+      </div>
+      <p id="studio-tuat-note" class="field-help" role="status">Nếu kênh đã được load trong tool Tuất trên cùng máy, có thể dùng phiên đó mà không nhập lại mật khẩu.</p>
       <p id="studio-status" class="field-help" role="status">Chưa kết nối tài khoản YouTube.</p>
-      <p id="studio-session" class="field-help">Đăng nhập Google, chọn kênh rồi bấm “Đăng nhập xong — chạy nền”. Tool sẽ lưu phiên trên máy và tự xử lý các bản lưu đã chọn.</p>
+      <p id="studio-session" class="field-help">Đăng nhập YouTube bằng form hoặc chọn phiên kênh từ tool Tuất. Tool xác minh Channel ID rồi lưu phiên để chạy nền.</p>
       <form id="archive-form" class="archive-form">
         <label class="field"><span>VIDEO ĐÃ KẾT THÚC LIVE</span><input id="archive-video" placeholder="Dán Video ID hoặc link YouTube / Studio" maxlength="500" required></label>
         <label class="check-field"><input id="archive-publish" type="checkbox" checked><span>Tự chuyển Công khai khi hết claim</span></label>

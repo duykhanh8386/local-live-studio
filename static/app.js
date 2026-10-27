@@ -195,7 +195,11 @@ function renderArchives(data) {
   state.archives=data.tasks; $('studio-status').textContent=data.browser_message;
   const session=data.session||{};
   $('studio-connect').disabled=!data.login_pending; $('studio-cancel-login').hidden=!data.login_pending;
-  $('studio-session').textContent=session.channel_id?`Kênh: ${session.channel_id} · ${session.connected?'Phiên đã lưu · Chạy nền':'Cần kiểm tra / đăng nhập lại'}${session.verified_at?' · Xác minh: '+date(session.verified_at):''}`:'Đăng nhập Google, chọn kênh rồi bấm “Đăng nhập xong — chạy nền”. Tool sẽ lưu phiên trên máy và tự xử lý các bản lưu đã chọn.';
+  $('studio-login').disabled=!!data.login_pending;
+  $('studio-tuat-load').disabled=!!data.login_pending;
+  $('studio-tuat-channel').disabled=!!data.login_pending||$('studio-tuat-channel').options.length<2;
+  $('studio-tuat-connect').disabled=!!data.login_pending||!$('studio-tuat-channel').value;
+  $('studio-session').textContent=session.channel_id?`Kênh: ${session.channel_id} · ${data.login_pending?'Đang đăng nhập / xác minh':session.connected?'Phiên đã lưu · Chạy nền':'Cần kiểm tra / đăng nhập lại'}${session.verified_at?' · Xác minh: '+date(session.verified_at):''}`:'Đăng nhập YouTube bằng form hoặc dùng phiên kênh từ tool Tuất. Sau khi xác minh đúng kênh, tool lưu phiên và xử lý nền.';
   $('archives-empty').hidden=data.tasks.length>0;
   $('archives-body').innerHTML=data.tasks.map(task=>`<tr><td><a href="https://studio.youtube.com/video/${escapeHTML(task.video_id)}/copyright" target="_blank" rel="noreferrer">${escapeHTML(task.video_id)} ↗</a><span class="stream-meta">${task.publish_after?'Hết claim → Công khai':'Giữ chế độ hiển thị'} · ${Number(task.cuts)} lượt cắt</span></td><td><span class="status-chip ${task.status==='completed'?'completed':ARCHIVE_PAUSED.has(task.status)?'failed':'starting'}">${ARCHIVE_LABELS[task.status]||escapeHTML(task.status)}</span></td><td class="archive-message">${escapeHTML(task.message)}<span class="stream-meta">${date(task.updated_at)}</span></td><td><div class="actions">${iconButton('archive-logs',task.id,'Xem log','≡')}${task.status==='completed'?iconButton('archive-retry',task.id,'Kiểm tra lại','↻'):ARCHIVE_PAUSED.has(task.status)?iconButton('archive-retry',task.id,'Tiếp tục','▶'):iconButton('archive-cancel',task.id,'Dừng tự động','■','stop')}</div></td></tr>`).join('');
 }
@@ -222,6 +226,30 @@ function setupUpdates() {
   },'Cài bản mới');
 }
 function setupArchives() {
+  $('studio-login-form').onsubmit=async event=>{
+    event.preventDefault(); if(!$('studio-login-form').reportValidity()) return;
+    const body=JSON.stringify({email:$('studio-email').value.trim(),password:$('studio-password').value});
+    $('studio-login-form').reset(); $('studio-login').disabled=true;
+    try {await api('/api/studio/login',{method:'POST',body});toast('Đang đăng nhập YouTube. Hoàn tất xác minh trong cửa sổ vừa mở nếu được yêu cầu.');await refresh();}
+    catch(error){toast(error.message,'error');$('studio-login').disabled=false;}
+  };
+  $('studio-tuat-load').onclick=async()=>{
+    $('studio-tuat-load').disabled=true;
+    try {
+      const channels=await api('/api/studio/tuat-channels');
+      const select=$('studio-tuat-channel');select.replaceChildren(new Option('Chọn kênh YouTube',''));
+      for(const channel of channels) select.add(new Option(`${channel.name} · ${channel.id}`,channel.id));
+      select.disabled=!channels.length;
+      $('studio-tuat-note').textContent=channels.length?`Đã đọc ${channels.length} kênh. Chọn kênh rồi bấm Dùng phiên kênh đã chọn.`:'Chưa có kênh trong tool Tuất trên máy này. Đăng nhập và load kênh trong tool Tuất rồi bấm Lấy kênh lại.';
+      $('studio-tuat-connect').disabled=true;
+    }catch(error){toast(error.message,'error');}finally{$('studio-tuat-load').disabled=false;}
+  };
+  $('studio-tuat-channel').onchange=()=>$('studio-tuat-connect').disabled=!$('studio-tuat-channel').value;
+  $('studio-tuat-connect').onclick=async()=>{
+    $('studio-tuat-connect').disabled=true;
+    try {await api('/api/studio/import-tuat',{method:'POST',body:JSON.stringify({channel_id:$('studio-tuat-channel').value})});toast('Đang xác minh phiên YouTube của kênh đã chọn.');await refresh();}
+    catch(error){toast(error.message,'error');await refresh();}
+  };
   $('studio-open').onclick=async()=>{
     try {await api('/api/studio/open',{method:'POST'}); toast('Đang mở cửa sổ Studio riêng. Đăng nhập và chọn kênh tại đó.'); await refresh();}
     catch(error){toast(error.message,'error');}

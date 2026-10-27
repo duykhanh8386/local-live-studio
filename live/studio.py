@@ -1,7 +1,7 @@
 """Owner-session Studio automation, inspired by Youtube-remove-copyright.
 
-No private YouTube endpoints or credentials are replayed. Unknown UI states stop
-the job; a missing selector is never evidence that a claim has disappeared.
+Edits use the signed-in browser UI. Unknown UI states stop the job; a missing
+selector is never evidence that a claim has disappeared.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 
 class StudioIssue(ValueError):
@@ -82,10 +82,10 @@ class StudioBrowser:
         port_file.unlink(missing_ok=True)
         arguments = [executable, f"--user-data-dir={self.profile.resolve()}",
             "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", "--no-first-run",
-            "--no-default-browser-check"]
+            "--no-default-browser-check", "--disable-blink-features=AutomationControlled"]
         if self.background:
             arguments.append("--headless=new")
-        self.process = subprocess.Popen(arguments + ["https://studio.youtube.com"],
+        self.process = subprocess.Popen(arguments + ["about:blank"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         end = time.monotonic() + 20
         endpoint = None
@@ -105,15 +105,68 @@ class StudioBrowser:
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.connect_over_cdp(endpoint, timeout=15000)
         context = self.browser.contexts[0]
-        self.page = context.new_page()
+        self.page = context.pages[0] if context.pages else context.new_page()
         self.page.set_default_timeout(8000)
         self.page.set_default_navigation_timeout(20000)
 
     def open_login(self):
+        self.expected_channel_id = ""
         self.set_background(False)
         self.connect()
         self.page.goto("https://studio.youtube.com", wait_until="domcontentloaded")
         self.page.bring_to_front()
+
+    def login(self, email, password, *, cancelled=lambda: False):
+        """Submit only to Google's own sign-in page; the user handles 2FA."""
+        self.open_login()
+        self.page.goto("https://accounts.google.com/v3/signin/identifier?" + urlencode({
+            "service": "youtube", "continue": "https://studio.youtube.com/", "hl": "vi",
+        }), wait_until="domcontentloaded")
+
+        def field(selector):
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                if cancelled():
+                    raise StudioIssue("Đã hủy đăng nhập YouTube.", "needs_login")
+                parsed = urlparse(self.page.url)
+                if parsed.scheme != "https" or parsed.hostname != "accounts.google.com":
+                    # Already authenticated or at a channel chooser: never type
+                    # credentials into a redirected page, even a lookalike URL.
+                    return None
+                text = self.page.locator("body").inner_text(timeout=2000)
+                if "/signin/rejected" in parsed.path or re.search(
+                    r"browser or app may not be secure|trình duyệt hoặc ứng dụng này có thể không an toàn", text, re.I
+                ):
+                    raise StudioIssue("Google từ chối trình duyệt đăng nhập. Dùng phiên kênh đã đăng nhập trong tool Tuất, hoặc mở YouTube thủ công để đăng nhập lại.", "needs_login")
+                visible = self._visible(self.page.locator(selector))
+                if len(visible) == 1 and visible[0].is_enabled():
+                    return visible[0]
+                # A challenge must be completed by the owner, without filling
+                # a password into a recovery/verification-code field.
+                if "/challenge/" in parsed.path and not parsed.path.endswith("/pwd"):
+                    return None
+                self.page.wait_for_timeout(200)
+            raise StudioIssue("Chưa thấy ô đăng nhập. Kiểm tra cửa sổ YouTube, hoàn tất xác minh rồi chọn kênh.", "needs_login")
+
+        email_field = field('input[type="email"]')
+        if email_field is None:
+            return
+        email_field.fill(email)
+        self.page.locator("#identifierNext").click()
+        password_field = field('input[type="password"]')
+        if password_field is None:
+            return
+        password_field.fill(password)
+        self.page.locator("#passwordNext").click()
+
+    def import_session(self, channel_id, cookies):
+        self.close()
+        self.expected_channel_id = channel_id
+        self.background = True
+        self.connect()
+        context = self.page.context
+        context.clear_cookies()
+        context.add_cookies(cookies)
 
     def set_background(self, background):
         if self.background != background:
@@ -145,12 +198,14 @@ class StudioBrowser:
 
         self.page.on("response", observe)
         try:
-            self.page.goto("https://studio.youtube.com", wait_until="domcontentloaded")
+            target = (f"https://studio.youtube.com/channel/{self.expected_channel_id}/dashboard"
+                      if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", self.expected_channel_id) else "https://studio.youtube.com")
+            self.page.goto(target, wait_until="domcontentloaded")
             end = time.monotonic() + timeout
             while time.monotonic() < end:
                 parsed = urlparse(self.page.url)
                 if parsed.hostname in {"accounts.google.com", "consent.youtube.com"}:
-                    raise StudioIssue("Chưa đăng nhập xong. Hoàn tất đăng nhập Google và chọn kênh trong cửa sổ Studio.", "needs_login")
+                    raise StudioIssue("Chưa đăng nhập YouTube xong. Hoàn tất xác minh và chọn kênh trong cửa sổ Studio, hoặc dùng phiên từ tool Tuất.", "needs_login")
                 match = re.match(r"^/channel/(UC[A-Za-z0-9_-]{22})(?:/|$)", parsed.path)
                 if parsed.hostname == "studio.youtube.com" and match:
                     # A URL entered by the user is insufficient: require the

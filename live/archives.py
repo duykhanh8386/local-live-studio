@@ -8,6 +8,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 from .studio import StudioBrowser, StudioIssue
+from .tuat_session import load_channel_session
 
 TERMINAL = {"completed", "needs_login", "needs_review", "failed", "cancelled"}
 
@@ -50,6 +51,9 @@ class ArchiveQueue:
         self.finish = threading.Event()
         self.cancel_login = threading.Event()
         self.login_pending = False
+        self.auth_lock = threading.Lock()
+        self.auth_command = None
+        self.expected_login_channel = ""
         self.thread = None
         self.browser_message = ("Đã lưu phiên Studio. Sẽ kiểm tra hiệu lực khi chạy tác vụ nền."
                                 if self.session["connected"] else "Chưa kết nối tài khoản YouTube.")
@@ -91,14 +95,35 @@ class ArchiveQueue:
         self.login.set()
         self.wake.set()
 
+    def start_login(self, email, password):
+        if not email or "@" not in email or not password:
+            raise ValueError("Nhập Email và mật khẩu tài khoản YouTube.")
+        self._queue_auth(("credentials", email, password))
+
+    def import_tuat_channel(self, channel_id):
+        if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel_id):
+            raise ValueError("Chọn một kênh YouTube hợp lệ từ tool Tuất.")
+        self._queue_auth(("tuat", channel_id, ""))
+
+    def _queue_auth(self, command):
+        with self.auth_lock:
+            if self.closed.is_set():
+                raise ValueError("Tool đang đóng.")
+            if self.login_pending:
+                raise ValueError("Đang đăng nhập. Hoàn tất hoặc bấm Hủy đăng nhập trước khi đổi cách kết nối.")
+            self.auth_command = command
+            self.open_login()
+
     def finish_login(self):
         if not self.login_pending:
-            raise ValueError("Bấm Mở Studio / Đăng nhập trước khi lưu phiên.")
+            raise ValueError("Bắt đầu đăng nhập YouTube trước khi lưu phiên.")
         self.browser_message = "Đang xác minh phiên và chuyển sang chạy nền…"
         self.finish.set()
         self.wake.set()
 
     def abort_login(self):
+        with self.auth_lock:
+            self.auth_command = None
         self.cancel_login.set()
         self.wake.set()
 
@@ -147,11 +172,40 @@ class ArchiveQueue:
     def _session_commands(self):
         if self.login.is_set():
             self.login.clear()
+            with self.auth_lock:
+                command = self.auth_command or ("manual", "", "")
+                self.auth_command = None
+            self.expected_login_channel = command[1] if command[0] == "tuat" else ""
             try:
-                self._get_browser().open_login()
-                self.browser_message = "Studio đã mở. Đăng nhập và chọn kênh, rồi bấm Đăng nhập xong — chạy nền. Tác vụ cắt đang tạm dừng."
+                if self.cancel_login.is_set() or self.closed.is_set():
+                    raise StudioIssue("Đã hủy đăng nhập YouTube.", "needs_login")
+                if command[0] == "credentials":
+                    self._get_browser().login(command[1], command[2],
+                        cancelled=lambda: self.cancel_login.is_set() or self.closed.is_set())
+                    self.browser_message = "Đã gửi bước đăng nhập YouTube. Hoàn tất xác minh hai bước nếu có, chọn kênh rồi bấm Đăng nhập xong — chạy nền."
+                elif command[0] == "tuat":
+                    cookies = load_channel_session(command[1])
+                    try:
+                        if self.cancel_login.is_set() or self.closed.is_set():
+                            raise StudioIssue("Đã hủy kết nối kênh Tuất.", "needs_login")
+                        self._get_browser().import_session(command[1], cookies)
+                    finally:
+                        cookies = None
+                    self.finish.set()
+                    self.browser_message = "Đang xác minh phiên YouTube của kênh đã chọn trong tool Tuất…"
+                else:
+                    self._get_browser().open_login()
+                    self.browser_message = "Studio đã mở. Đăng nhập và chọn kênh, rồi bấm Đăng nhập xong — chạy nền. Tác vụ cắt đang tạm dừng."
             except Exception as exc:
-                self.browser_message = str(exc) if isinstance(exc, StudioIssue) else "Không mở được Chrome/Edge cho Studio."
+                message = str(exc) if isinstance(exc, StudioIssue) else "Không đăng nhập được YouTube. Kiểm tra cửa sổ Chrome/Edge hoặc dùng phiên kênh từ tool Tuất."
+                # Even an automation exception may include a field's value.
+                # Only generic errors or redacted Studio messages reach the UI.
+                for sensitive in command[1:]:
+                    if sensitive:
+                        message = message.replace(sensitive, "[ẩn]")
+                self.browser_message = message
+            finally:
+                command = None
         if self.cancel_login.is_set():
             self.cancel_login.clear()
             self.finish.clear()
@@ -159,6 +213,7 @@ class ArchiveQueue:
                 self.browser.close()
                 self.browser = None
             self.login_pending = False
+            self.expected_login_channel = ""
             self.browser_message = "Đã hủy bước đăng nhập. Giữ thiết lập phiên đã lưu trước đó."
         if self.finish.is_set():
             self.finish.clear()
@@ -167,6 +222,8 @@ class ArchiveQueue:
                 channel_id = browser.verify_login()["channel_id"]
                 if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel_id):
                     raise StudioIssue("Studio chưa trả về Channel ID hợp lệ.", "needs_login")
+                if self.expected_login_channel and channel_id != self.expected_login_channel:
+                    raise StudioIssue("Phiên Tuất mở sang kênh khác; chưa kết nối. Load lại đúng kênh trong tool Tuất.", "needs_login")
                 browser.use_saved_session(channel_id)
                 # Verify the same profile is usable after the visible window
                 # closes. A successful login form alone is not enough.
@@ -177,7 +234,10 @@ class ArchiveQueue:
                 self.session = dict(connected=True, background=True, channel_id=channel_id, verified_at=time.time())
                 self.store.save_setting("studio_session", self.session)
                 self.login_pending = False
-                self.browser_message = f"Đã lưu phiên kênh {channel_id}. Tool đang chạy nền; chỉ cần đăng nhập lại khi phiên hết hạn."
+                self.browser_message = (f"Đã dùng phiên từ tool Tuất của kênh {channel_id}. Tool đang chạy nền."
+                                        if self.expected_login_channel else
+                                        f"Đã lưu phiên kênh {channel_id}. Tool đang chạy nền; chỉ cần đăng nhập lại khi phiên hết hạn.")
+                self.expected_login_channel = ""
                 with self.lock:
                     for task in self.store.archives():
                         if task["status"] == "needs_login" or task["status"] not in TERMINAL:
@@ -209,7 +269,7 @@ class ArchiveQueue:
                     if exc.status == "needs_login":
                         self.session = {**self.session, "connected": False}
                         self.store.save_setting("studio_session", self.session)
-                        self.browser_message = "Phiên YouTube cần đăng nhập lại. Bấm Mở Studio / Đăng nhập rồi Đăng nhập xong — chạy nền."
+                        self.browser_message = "Phiên YouTube cần đăng nhập lại. Dùng form Đăng nhập YouTube hoặc lấy phiên kênh từ tool Tuất."
                 except Exception:
                     self._update(task, "needs_review", "Mất kết nối hoặc giao diện Studio thay đổi. Kiểm tra Studio trước khi tiếp tục; chưa xác nhận thành công.")
 
@@ -281,6 +341,8 @@ class ArchiveQueue:
 
     def shutdown(self):
         self.closed.set()
+        with self.auth_lock:
+            self.auth_command = None
         self.wake.set()
         if self.thread:
             self.thread.join()

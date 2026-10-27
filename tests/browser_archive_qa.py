@@ -84,7 +84,11 @@ def main():
         base = f"http://127.0.0.1:{port}"
         media = dict(path=str(Path(folder) / "test.mp4"), name="test.mp4", size=1000, duration=1,
                      width=320, height=180, video_codec="h264", has_audio=True, audio_codec="aac")
-        with patch("live.api.probe_video", return_value=media):
+        with (
+            patch("live.api.probe_video", return_value=media),
+            patch("live.api.list_tuat_channels", return_value=[{"id": "UC" + "a" * 22, "name": "Kênh Tuất mô phỏng"}]),
+            patch("live.archives.load_channel_session", return_value=[{"name": "SAPISID", "value": "synthetic-cookie"}]),
+        ):
             server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False))
             thread = threading.Thread(target=server.run, daemon=True)
             thread.start()
@@ -104,12 +108,26 @@ def main():
                         page.goto(base)
                         expect(page.locator("#tool-status")).to_contain_text("sẵn sàng")
                         expect(page.locator("#archive-publish")).to_be_checked()
+                        page.locator("#studio-email").fill("fixture@example.test")
+                        page.locator("#studio-password").fill("synthetic-password")
+                        page.locator("#studio-login").click()
+                        expect(page.locator("#studio-password")).to_have_value("")
+                        expect(page.locator("#studio-email")).to_have_value("")
+                        expect(page.locator("#studio-status")).to_contain_text("Đã gửi bước đăng nhập", timeout=8000)
+                        page.locator("#studio-cancel-login").click()
+                        expect(page.locator("#studio-login")).to_be_enabled()
                         page.locator("#studio-open").click()
                         expect(page.locator("#studio-status")).to_contain_text("Studio đã mở", timeout=8000)
                         expect(page.locator("#studio-connect")).to_be_enabled()
                         page.locator("#studio-connect").click()
                         expect(page.locator("#studio-session")).to_contain_text("Chạy nền", timeout=8000)
                         expect(page.locator("#studio-connect")).to_be_disabled()
+                        page.locator("#studio-tuat-load").click()
+                        expect(page.locator("#studio-tuat-channel")).to_be_enabled()
+                        page.locator("#studio-tuat-channel").select_option("UC" + "a" * 22)
+                        page.locator("#studio-tuat-connect").click()
+                        expect(page.locator("#studio-status")).to_contain_text("Đã dùng phiên từ tool Tuất", timeout=8000)
+                        studio.import_session.assert_called_once()
                         page.locator("#archive-video").fill("https://youtu.be/Abc123_-XYZ")
                         page.locator("#archive-add").click()
                         expect(page.locator("#archives-body tr")).to_have_count(0)
@@ -147,7 +165,7 @@ def main():
                         studio.trim.assert_not_called()
                         studio.publish.assert_not_called()
                         report = {"passed": True, "js_errors": errors,
-                                  "checks": ["login and save background session", "permanent-cut consent", "queue / logs / cancel", "schedule options roundtrip", "default auto-public", "desktop / mobile", "update buttons and new local token after restart"]}
+                                  "checks": ["email/password form clears inputs", "Tuất channel selection and session verification", "login and save background session", "permanent-cut consent", "queue / logs / cancel", "schedule options roundtrip", "default auto-public", "desktop / mobile", "update buttons and new local token after restart"]}
                         (qa / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
                         print(json.dumps(report, ensure_ascii=False))
                     finally:

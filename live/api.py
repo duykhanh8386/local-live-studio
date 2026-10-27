@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .engine import Engine
@@ -23,6 +23,7 @@ from .media import VIDEO_EXTENSIONS, destination, executable, local_path, probe_
 from .storage import Store
 from .runtime import data_directory
 from .updates import UpdateService
+from .tuat_session import list_channels as list_tuat_channels
 
 ROOT = Path(__file__).resolve().parent.parent
 VIETNAM = timezone(timedelta(hours=7))
@@ -51,6 +52,17 @@ class ArchiveInput(BaseModel):
     video: str = Field(min_length=1, max_length=500)
     publish_after: bool = True
     accept_permanent_cut: bool = False
+
+
+class StudioLoginInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=320)
+    password: SecretStr = Field(min_length=1, max_length=4096)
+
+
+class TuatChannelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel_id: str = Field(pattern=r"^UC[A-Za-z0-9_-]{22}$")
 
 
 def create_app(data_dir: Path | None = None, *, start_scheduler: bool = True,
@@ -247,6 +259,20 @@ def create_app(data_dir: Path | None = None, *, start_scheduler: bool = True,
     @app.post("/api/studio/open")
     def open_studio():
         archives.open_login()
+        return {"ok": True}
+
+    @app.post("/api/studio/login")
+    def login_studio(payload: StudioLoginInput):
+        archives.start_login(payload.email.strip(), payload.password.get_secret_value())
+        return {"ok": True}
+
+    @app.get("/api/studio/tuat-channels")
+    def tuat_channels():
+        return list_tuat_channels()
+
+    @app.post("/api/studio/import-tuat")
+    def import_tuat_channel(payload: TuatChannelInput):
+        archives.import_tuat_channel(payload.channel_id)
         return {"ok": True}
 
     @app.post("/api/studio/connect")
