@@ -69,6 +69,7 @@ class ArchiveTests(unittest.TestCase):
 
     def test_video_id_accepts_only_exact_youtube_hosts_and_ids(self):
         for value in (VIDEO, f"https://youtu.be/{VIDEO}", f"https://studio.youtube.com/video/{VIDEO}/copyright",
+                      f"https://studio.youtube.com/video/{VIDEO}/claims",
                       f"https://www.youtube.com/live/{VIDEO}", f"https://www.youtube.com/watch?v={VIDEO}&t=2"):
             self.assertEqual(video_id(value), VIDEO)
         for value in ("abc", f"https://youtube.com.evil.invalid/watch?v={VIDEO}",

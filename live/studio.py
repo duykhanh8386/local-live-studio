@@ -41,11 +41,13 @@ def chrome_path() -> str:
 
 
 CLEAN = re.compile(r"no copyright (?:claims|issues)|no copyright.protected content (?:was )?found|"
-                   r"no issues found|no claims found|"
+                   r"no issues found|no claims (?:were )?found|"
                    r"không có (?:khiếu nại|vấn đề|thông tin khiếu nại) (?:nào )?(?:về )?bản quyền|"
                    r"chưa (?:phát hiện|tìm thấy) (?:nội dung|khiếu nại) (?:nào )?(?:có |về )?bản quyền|"
-                   r"không tìm thấy nội dung (?:nào )?có bản quyền|không tìm thấy vấn đề|"
-                   r"không có khiếu nại", re.I)
+                   r"không tìm thấy nội dung (?:nào )?có bản quyền|"
+                   r"không tìm thấy thông báo (?:xác nhận )?quyền sở hữu(?: nào)?|"
+                   r"không có thông báo (?:xác nhận )?quyền sở hữu|"
+                   r"không tìm thấy vấn đề|không có khiếu nại", re.I)
 PROCESSING = re.compile(r"(?:video|edits|changes) (?:is|are) being process|processing (?:video|edits|changes)|"
                         r"(?:video|edits|changes) (?:is|are) (?:still )?processing|"
                         r"video is being edited|checks (?:are )?(?:running|in progress)|"
@@ -355,8 +357,10 @@ class StudioBrowser:
         if parsed.hostname in {"accounts.google.com", "consent.youtube.com"}:
             raise StudioIssue("Hãy đăng nhập và chọn đúng kênh trong cửa sổ Studio rồi bấm Tiếp tục.", "needs_login")
         path = parsed.path.rstrip("/")
-        valid = (path == f"/video/{identifier}/{section}" or
-                 bool(re.fullmatch(rf"/channel/UC[A-Za-z0-9_-]{{22}}/video/{re.escape(identifier)}/{re.escape(section)}", path)))
+        sections = {"copyright", "claims"} if section in {"copyright", "claims"} else {section}
+        sec_pattern = "(?:" + "|".join(re.escape(s) for s in sorted(sections)) + ")"
+        valid = (bool(re.fullmatch(rf"/video/{re.escape(identifier)}/{sec_pattern}", path)) or
+                 bool(re.fullmatch(rf"/channel/UC[A-Za-z0-9_-]{{22}}/video/{re.escape(identifier)}/{sec_pattern}", path)))
         if parsed.hostname != "studio.youtube.com" or not valid:
             raise StudioIssue("Studio chưa mở đúng Video ID. Kiểm tra tài khoản, kênh và quyền chỉnh sửa video.")
 
@@ -388,7 +392,15 @@ class StudioBrowser:
         raise StudioIssue("Studio chưa hiện nút xác nhận của thao tác đang chọn.")
 
     def _scope(self):
-        for selector in ("ytcr-video-home-dialog", "ytcp-video-copyright", "main", "#main"):
+        for selector in (
+            "ytcr-claims-home",
+            "ytcp-claims-overview",
+            "ytcp-video-claims",
+            "ytcr-video-home-dialog",
+            "ytcp-video-copyright",
+            "main",
+            "#main",
+        ):
             matches = self._visible(self.page.locator(selector))
             if len(matches) == 1:
                 return matches[0]
@@ -467,8 +479,14 @@ class StudioBrowser:
             # Generic "No issues found" outside the copyright panel is not a
             # sufficient clean signal (e.g. another Studio check may say it).
             clean = CLEAN.search(text)
-            copyright_panel = scope.evaluate("el => el.tagName.toLowerCase()") in {"ytcr-video-home-dialog", "ytcp-video-copyright"}
-            if clean and (copyright_panel or re.search(r"copyright|bản quyền", clean.group(0), re.I)):
+            panel_tag = scope.evaluate("el => el.tagName.toLowerCase()")
+            copyright_panel = panel_tag in {
+                "ytcr-video-home-dialog", "ytcp-video-copyright",
+                "ytcr-claims-home", "ytcp-claims-overview", "ytcp-video-claims",
+            }
+            has_copyright_kw = bool(re.search(r"copyright|bản quyền|quyền sở hữu|khiếu nại", clean.group(0) if clean else "", re.I))
+            is_claims_page = bool(re.search(r"/(?:claims|copyright)", self.page.url, re.I))
+            if clean and (copyright_panel or has_copyright_kw or (is_claims_page and re.search(r"copyright|bản quyền|quyền sở hữu|claims|khiếu nại", text, re.I))):
                 return {"kind": "clean"}
             self.page.wait_for_timeout(300)
         raise StudioIssue("Studio chưa xác nhận không có claim và chưa đọc được danh sách claim. Cần kiểm tra giao diện; không công khai video.")

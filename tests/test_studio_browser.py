@@ -72,8 +72,8 @@ class StudioBrowserTests(unittest.TestCase):
                 <div id="options" hidden><ytcp-radio-button name="PUBLIC" role="radio" onclick="document.body.dataset.chosen='PUBLIC'">Public</ytcp-radio-button><button onclick="document.querySelector('#options').hidden=true">Done</button></div>
                 <button onclick="if(document.body.dataset.chosen==='PUBLIC') fetch('/persist-visibility').then(()=>this.disabled=true)">Save</button>
                 </main>''')
-            elif f"/video/{VIDEO}/copyright" in url:
-                route.fulfill(content_type="text/html", body=self.html)
+            elif f"/video/{VIDEO}/copyright" in url or f"/video/{VIDEO}/claims" in url:
+                route.fulfill(content_type="text/html; charset=utf-8", body=self.html)
             else:
                 route.abort()
 
@@ -195,6 +195,23 @@ class StudioBrowserTests(unittest.TestCase):
             self.driver.open_login()
             self.assertFalse(self.driver.background)
             self.assertEqual(close.call_count, 2)
+
+    def test_claims_route_and_vietnamese_clean_overview(self):
+        original_goto = self.page.goto
+
+        def goto_claims(url, *args, **kwargs):
+            if f"/video/{VIDEO}/copyright" in url:
+                url = url.replace(f"/video/{VIDEO}/copyright", f"/video/{VIDEO}/claims")
+            return original_goto(url, *args, **kwargs)
+
+        self.html = """<main>
+            <h1>Tổng quan về thông báo xác nhận quyền sở hữu</h1>
+            <p>Không tìm thấy thông báo xác nhận quyền sở hữu nào trong video này</p>
+            <p>Không tìm thấy nội dung có bản quyền trong video của bạn.</p>
+        </main>"""
+        with patch.object(self.page, "goto", side_effect=goto_claims):
+            state = self.driver.inspect(VIDEO)
+            self.assertEqual(state["kind"], "clean")
 
 
 if __name__ == "__main__":
