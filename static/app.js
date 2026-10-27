@@ -193,16 +193,24 @@ document.addEventListener('DOMContentLoaded',async()=>{
   setInterval(async()=>{if(state.polling)return;state.polling=true;try{await refresh();await refreshLogs();if(offline)toast('Đã kết nối lại máy phát.');offline=false;}catch(error){if(!offline)toast('Mất kết nối web local. Kiểm tra cửa sổ máy phát.','error');offline=true;}finally{state.polling=false;}},2000);
 });
 
-const ARCHIVE_LABELS={queued:'Chờ kiểm tra',waiting_live:'Chờ live kết thúc',processing:'YouTube đang xử lý',preparing:'Chuẩn bị cắt',submitting:'Đang gửi lệnh cắt',verifying:'Đang xác minh',publishing:'Đang công khai',completed:'Hoàn tất',needs_login:'Cần đăng nhập',needs_review:'Cần kiểm tra',failed:'Lỗi',cancelled:'Đã dừng'};
+const ARCHIVE_LABELS={queued:'Chờ kiểm tra',waiting_live:'Chờ live kết thúc',processing:'YouTube đang xử lý',preparing:'Chuẩn bị cắt',submitting:'Đang gửi lệnh cắt',verifying:'Đang xác minh',publishing:'Đang công khai',completed:'Hoàn tất',needs_login:'Chưa kết nối kênh',needs_review:'Cần kiểm tra',failed:'Lỗi',cancelled:'Đã dừng'};
 const ARCHIVE_PAUSED=new Set(['needs_login','needs_review','failed','cancelled']);
 function renderArchives(data) {
   state.archives=data.tasks; $('studio-status').textContent=data.browser_message;
   const session=data.session||{};
-  $('studio-connect').disabled=!data.login_pending; $('studio-cancel-login').hidden=!data.login_pending;
+  state.session=session;
+  const pending=!!data.login_pending, busy=!!data.auth_busy, tuatPending=pending&&data.auth_source==='tuat';
+  state.tuatPending=tuatPending;
+  $('studio-connect').disabled=!pending||busy; $('studio-cancel-login').hidden=!pending;
+  $('studio-connect').textContent=busy?'Đang xác minh…':'Đăng nhập xong — chạy nền';
+  $('studio-open').disabled=pending;
   $('studio-login').disabled=!!data.login_pending;
   $('studio-tuat-load').disabled=!!data.login_pending;
   $('studio-tuat-channel').disabled=!!data.login_pending||$('studio-tuat-channel').options.length<2;
-  $('studio-tuat-connect').disabled=!!data.login_pending||!$('studio-tuat-channel').value;
+  $('studio-tuat-connect').disabled=tuatPending?busy:pending||!$('studio-tuat-channel').value;
+  $('studio-tuat-connect').textContent=tuatPending?(busy?'Đang xác minh phiên…':'Xác minh lại phiên'):'Dùng phiên kênh đã chọn';
+  $('studio-tuat-connect').setAttribute('aria-busy',String(tuatPending&&busy));
+  $('studio-tuat-cancel').hidden=!tuatPending;
   $('studio-session').textContent=session.channel_id?`Kênh: ${session.channel_id} · ${data.login_pending?'Đang đăng nhập / xác minh':session.connected?'Phiên đã lưu · Chạy nền':'Cần kiểm tra / đăng nhập lại'}${session.verified_at?' · Xác minh: '+date(session.verified_at):''}`:'Đăng nhập YouTube bằng form hoặc dùng phiên kênh từ tool Tuất. Sau khi xác minh đúng kênh, tool lưu phiên và xử lý nền.';
   $('archives-empty').hidden=data.tasks.length>0;
   $('archives-body').innerHTML=data.tasks.map(task=>`<tr><td><a href="https://studio.youtube.com/video/${escapeHTML(task.video_id)}/copyright" target="_blank" rel="noreferrer">${escapeHTML(task.video_id)} ↗</a><span class="stream-meta">${task.publish_after?'Hết claim → Công khai':'Giữ chế độ hiển thị'} · ${Number(task.cuts)} lượt cắt</span></td><td><span class="status-chip ${task.status==='completed'?'completed':ARCHIVE_PAUSED.has(task.status)?'failed':'starting'}">${ARCHIVE_LABELS[task.status]||escapeHTML(task.status)}</span></td><td class="archive-message">${escapeHTML(task.message)}<span class="stream-meta">${date(task.updated_at)}</span></td><td><div class="actions">${iconButton('archive-logs',task.id,'Xem log','≡')}${task.status==='completed'?iconButton('archive-retry',task.id,'Kiểm tra lại','↻'):ARCHIVE_PAUSED.has(task.status)?iconButton('archive-retry',task.id,'Tiếp tục','▶'):iconButton('archive-cancel',task.id,'Dừng tự động','■','stop')}</div></td></tr>`).join('');
@@ -251,7 +259,11 @@ function setupArchives() {
   $('studio-tuat-channel').onchange=()=>$('studio-tuat-connect').disabled=!$('studio-tuat-channel').value;
   $('studio-tuat-connect').onclick=async()=>{
     $('studio-tuat-connect').disabled=true;
-    try {await api('/api/studio/import-tuat',{method:'POST',body:JSON.stringify({channel_id:$('studio-tuat-channel').value})});toast('Đang xác minh phiên YouTube của kênh đã chọn.');await refresh();}
+    try {
+      if(state.tuatPending) await api('/api/studio/connect',{method:'POST'});
+      else await api('/api/studio/import-tuat',{method:'POST',body:JSON.stringify({channel_id:$('studio-tuat-channel').value})});
+      toast('Đang xác minh phiên YouTube. Kiểm tra cửa sổ Studio nếu có yêu cầu chọn kênh hoặc đăng nhập.');await refresh();
+    }
     catch(error){toast(error.message,'error');await refresh();}
   };
   $('studio-open').onclick=async()=>{
@@ -266,10 +278,21 @@ function setupArchives() {
     try {await api('/api/studio/cancel-login',{method:'POST'}); await refresh();}
     catch(error){toast(error.message,'error');}
   };
+  $('studio-tuat-cancel').onclick=$('studio-cancel-login').onclick;
   $('archive-form').onsubmit=async event=>{
     event.preventDefault(); if(!$('archive-form').reportValidity()) return;
     $('archive-add').disabled=true;
-    try {const task=await api('/api/archives',{method:'POST',body:JSON.stringify({video:$('archive-video').value.trim(),publish_after:$('archive-publish').checked,accept_permanent_cut:$('archive-consent').checked})}); toast(task.existing?'Video đã có trong danh sách với thiết lập đã lưu. Dùng Tiếp tục / Kiểm tra lại ở dòng đó.':'Đã đưa bản lưu vào danh sách kiểm tra.'); $('archive-video').value=''; $('archive-consent').checked=false; await refresh();}
+    try {
+      const task=await api('/api/archives',{method:'POST',body:JSON.stringify({video:$('archive-video').value.trim(),publish_after:$('archive-publish').checked,accept_permanent_cut:$('archive-consent').checked})});
+      if(task.existing){
+        toast('Video đã có trong danh sách với thiết lập đã lưu.');
+      } else if(task.status === 'needs_login' || (!state.session || !state.session.connected)){
+        toast('Đã thêm video vào danh sách. Vui lòng kết nối phiên kênh ở trên để tool tự động kiểm tra.');
+      } else {
+        toast('Đã đưa bản lưu vào danh sách kiểm tra.');
+      }
+      $('archive-video').value=''; $('archive-consent').checked=false; await refresh();
+    }
     catch(error){toast(error.message,'error');}finally{$('archive-add').disabled=false;}
   };
   $('archives-body').onclick=async event=>{
@@ -277,7 +300,18 @@ function setupArchives() {
     const task=state.archives.find(item=>item.id===button.dataset.id); if(!task)return;
     const action=button.dataset.action;
     if(action==='archive-logs'){state.logId=task.id;state.logKind='archives';$('logs-title').textContent=`Log bản lưu · ${task.video_id}`;$('logs-dialog').showModal();return refreshLogs();}
-    try {button.disabled=true;await api(`/api/archives/${task.id}/${action==='archive-retry'?'retry':'cancel'}`,{method:'POST'});await refresh();}
+    if(action==='archive-retry'){
+      if(task.status==='needs_login' && (!state.session || !state.session.connected)){
+        toast('Chưa kết nối phiên YouTube Studio. Vui lòng chọn kênh và kết nối ở trên trước khi bấm Tiếp tục.','error');
+        return;
+      }
+    }
+    try {
+      button.disabled=true;
+      await api(`/api/archives/${task.id}/${action==='archive-retry'?'retry':'cancel'}`,{method:'POST'});
+      toast(action==='archive-retry'?'Đang xếp hàng kiểm tra bản lưu trong Studio.':'Đã dừng tự động tác vụ này.');
+      await refresh();
+    }
     catch(error){toast(error.message,'error');}finally{button.disabled=false;}
   };
 }

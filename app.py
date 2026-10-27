@@ -35,6 +35,12 @@ class LocalServer(uvicorn.Server):
             self.ready_thread.start()
 
     def _wait_for_http(self):
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                try:
+                    stream.reconfigure(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
         deadline = time.monotonic() + 30
         last_error = ""
         while not self.finished.is_set() and time.monotonic() < deadline:
@@ -45,8 +51,11 @@ class LocalServer(uvicorn.Server):
                     if self.on_ready:
                         self.on_ready()
                     url = f"http://127.0.0.1:{self.port}/"
-                    print(f"\n[OK] Máy chủ đã sẵn sàng (HTTP 200).\nLocal Live Studio: {url}\n"
-                          "Giữ cửa sổ này mở để máy phát và lịch hoạt động. Ctrl+C để dừng.\n", flush=True)
+                    try:
+                        print(f"\n[OK] Máy chủ đã sẵn sàng (HTTP 200).\nLocal Live Studio: {url}\n"
+                              "Giữ cửa sổ này mở để máy phát và lịch hoạt động. Ctrl+C để dừng.\n", flush=True)
+                    except Exception:
+                        pass
                     if self.open_browser:
                         try:
                             if not webbrowser.open(url):
@@ -60,7 +69,10 @@ class LocalServer(uvicorn.Server):
             self.finished.wait(.1)
         if not self.finished.is_set():
             self.readiness_error = f"Máy chủ không phản hồi HTTP sau 30 giây: {last_error}"
-            print(f"\n[LỖI] {self.readiness_error}", flush=True)
+            try:
+                print(f"\n[LỖI] {self.readiness_error}", flush=True)
+            except Exception:
+                pass
             self.should_exit = True
 
 

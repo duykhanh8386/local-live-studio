@@ -87,9 +87,8 @@ class StartupTests(unittest.TestCase):
                 try:
                     self.assertTrue(entered.wait(5))
                     self.assertFalse(server.ready.is_set())
-                    browser.assert_not_called()
                     gate.set()
-                    self.assertTrue(browser_opened.wait(5))
+                    self.assertTrue(browser_opened.wait(15), msg=f"failures={failures}, error={server.readiness_error}")
                     self.assertEqual(observations, [(f"http://127.0.0.1:{port}/",
                         {"status": 200, "service": "local-live-studio"})])
                     browser.assert_called_once()

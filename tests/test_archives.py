@@ -160,6 +160,9 @@ class ArchiveTests(unittest.TestCase):
         self.queue._session_commands()
         self.assertFalse(self.queue.login_pending)
         self.assertEqual(self.task()["status"], "needs_login")
+        with self.assertRaises(ValueError) as err:
+            self.queue.retry(self.task()["id"])
+        self.assertIn("Chưa kết nối phiên YouTube Studio", str(err.exception))
         self.queue.open_login()
         self.queue._session_commands()
         self.queue.finish_login()

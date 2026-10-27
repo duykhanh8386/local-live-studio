@@ -40,16 +40,19 @@ def chrome_path() -> str:
     raise StudioIssue("Cần cài Google Chrome hoặc Microsoft Edge để xử lý bản lưu trong Studio.")
 
 
-CLEAN = re.compile(r"no copyright claims|no copyright issues|no copyright.protected content (?:was )?found|"
-                   r"no issues found|không có (?:khiếu nại|vấn đề) (?:nào )?(?:về )?bản quyền|"
-                   r"không tìm thấy nội dung (?:nào )?có bản quyền|không tìm thấy vấn đề", re.I)
+CLEAN = re.compile(r"no copyright (?:claims|issues)|no copyright.protected content (?:was )?found|"
+                   r"no issues found|no claims found|"
+                   r"không có (?:khiếu nại|vấn đề|thông tin khiếu nại) (?:nào )?(?:về )?bản quyền|"
+                   r"chưa (?:phát hiện|tìm thấy) (?:nội dung|khiếu nại) (?:nào )?(?:có |về )?bản quyền|"
+                   r"không tìm thấy nội dung (?:nào )?có bản quyền|không tìm thấy vấn đề|"
+                   r"không có khiếu nại", re.I)
 PROCESSING = re.compile(r"(?:video|edits|changes) (?:is|are) being process|processing (?:video|edits|changes)|"
                         r"(?:video|edits|changes) (?:is|are) (?:still )?processing|"
                         r"video is being edited|checks (?:are )?(?:running|in progress)|"
                         r"đang (?:xử lý (?:video|nội dung chỉnh sửa|thay đổi)|kiểm tra)", re.I)
-TRIM = re.compile(r"^(?:trim out segment|trim segment|cắt bỏ phân đoạn|cắt bỏ đoạn|cắt đoạn)$", re.I)
+TRIM = re.compile(r"^(?:trim out segment|trim segment|cắt bỏ phân đoạn|cắt phân đoạn|cắt bỏ đoạn|cắt đoạn)$", re.I)
 CONTINUE = re.compile(r"^(?:continue|tiếp tục)$", re.I)
-CONFIRM = re.compile(r"^(?:trim|confirm|save|cắt|xác nhận|lưu)$", re.I)
+CONFIRM = re.compile(r"^(?:trim|confirm|save|cắt|cắt bỏ|xác nhận|lưu)$", re.I)
 ACTIONS = re.compile(r"^(?:select action|select an action|take action|actions|chọn hành động|chọn thao tác|thực hiện hành động|thao tác)$", re.I)
 CLAIM_ROWS = "ytcr-video-claim, ytcr-video-claim-row, ytcr-claim-row, ytcr-claim-list-item, [data-claim-id]"
 CONTROL = "button, ytcp-button, ytcp-icon-button, tp-yt-paper-item, [role=button], [role=menuitem]"
@@ -76,13 +79,14 @@ class StudioBrowser:
             raise StudioIssue("Thiếu Playwright. Chạy start.bat để cài thư viện theo requirements.txt.")
         executable = chrome_path()
         self.profile.mkdir(parents=True, exist_ok=True)
-        port_file = self.profile / "DevToolsActivePort"
         # This profile belongs exclusively to this feature. Never attach to the
         # user's normal Chrome profile or an arbitrary debugging port.
+        port_file = self.profile / "DevToolsActivePort"
         port_file.unlink(missing_ok=True)
         arguments = [executable, f"--user-data-dir={self.profile.resolve()}",
             "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", "--no-first-run",
-            "--no-default-browser-check", "--disable-blink-features=AutomationControlled"]
+            "--no-default-browser-check", "--disable-blink-features=AutomationControlled",
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"]
         if self.background:
             arguments.append("--headless=new")
         self.process = subprocess.Popen(arguments + ["about:blank"],
@@ -159,14 +163,16 @@ class StudioBrowser:
         password_field.fill(password)
         self.page.locator("#passwordNext").click()
 
-    def import_session(self, channel_id, cookies):
+    def import_session(self, channel_id, cookies, *, background=True):
         self.close()
         self.expected_channel_id = channel_id
-        self.background = True
+        self.background = background
         self.connect()
         context = self.page.context
         context.clear_cookies()
         context.add_cookies(cookies)
+        if not background:
+            self.page.bring_to_front()
 
     def set_background(self, background):
         if self.background != background:
@@ -177,7 +183,7 @@ class StudioBrowser:
         self.expected_channel_id = channel_id
         self.set_background(True)
 
-    def verify_login(self, *, timeout=15):
+    def verify_login(self, *, timeout=30):
         """Prove Studio reached a channel dashboard; never export its cookies."""
         self.connect()
         observed_channels = set()
@@ -186,7 +192,7 @@ class StudioBrowser:
             # Some Studio versions put delegation in their own successful
             # requests rather than ytcfg. Read the channel identifier only.
             parsed = urlparse(response.url)
-            if response.status != 200 or parsed.hostname != "studio.youtube.com" or not parsed.path.startswith("/youtubei/v1/"):
+            if not 200 <= response.status < 300 or parsed.hostname != "studio.youtube.com" or not parsed.path.startswith("/youtubei/v1/"):
                 return
             try:
                 body = response.request.post_data_json or {}
@@ -197,33 +203,95 @@ class StudioBrowser:
                 pass
 
         self.page.on("response", observe)
+        start_time = time.monotonic()
         try:
-            target = (f"https://studio.youtube.com/channel/{self.expected_channel_id}/dashboard"
-                      if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", self.expected_channel_id) else "https://studio.youtube.com")
-            self.page.goto(target, wait_until="domcontentloaded")
+            current_url = urlparse(self.page.url)
+            needs_nav = True
+            if self.expected_channel_id and current_url.hostname == "studio.youtube.com":
+                current_match = re.search(r"/channel/(UC[A-Za-z0-9_-]{22})", current_url.path)
+                if current_match and current_match.group(1) == self.expected_channel_id:
+                    needs_nav = False
+
+            if needs_nav:
+                target = (f"https://studio.youtube.com/channel/{self.expected_channel_id}/dashboard"
+                          if re.fullmatch(r"UC[A-Za-z0-9_-]{22}", self.expected_channel_id) else "https://studio.youtube.com")
+                self.page.goto(target, wait_until="domcontentloaded")
             end = time.monotonic() + timeout
             while time.monotonic() < end:
+                # If YouTube presents an interstitial banner, auto-dismiss/continue to Studio
+                try:
+                    for elem in self.page.locator("button, a").all():
+                        if elem.is_visible():
+                            txt = (elem.inner_text() or "").strip().upper()
+                            if "YOUTUBE STUDIO" in txt and any(w in txt for w in ["DIREKT", "CONTINUE", "TIẾP TỤC", "ZUM", "TO"]):
+                                elem.click()
+                                break
+                except Exception:
+                    pass
+
                 parsed = urlparse(self.page.url)
-                if parsed.hostname in {"accounts.google.com", "consent.youtube.com"}:
-                    raise StudioIssue("Chưa đăng nhập YouTube xong. Hoàn tất xác minh và chọn kênh trong cửa sổ Studio, hoặc dùng phiên từ tool Tuất.", "needs_login")
+                elapsed = time.monotonic() - start_time
+                if elapsed > 3.0 and (
+                    parsed.hostname in {"accounts.google.com", "consent.youtube.com", "consent.google.com"} or (
+                        parsed.hostname in {"youtube.com", "www.youtube.com"} and parsed.path.startswith(("/signin", "/account", "/channel_switcher"))
+                    )
+                ):
+                    raise StudioIssue("YouTube đang yêu cầu đăng nhập, xác minh hoặc chọn kênh. Hoàn tất trong cửa sổ Studio rồi bấm Xác minh lại phiên. Nếu cookie Tuất đã hết hiệu lực, Hủy rồi load lại kênh trong Tuất.", "needs_login")
+
                 match = re.match(r"^/channel/(UC[A-Za-z0-9_-]{22})(?:/|$)", parsed.path)
-                if parsed.hostname == "studio.youtube.com" and match:
-                    # A URL entered by the user is insufficient: require the
-                    # loaded Studio shell plus its channel context.
-                    configured = self.page.evaluate("""() => {
-                        const cfg = window.ytcfg;
-                        if (!cfg) return '';
-                        const get = key => typeof cfg.get === 'function' ? cfg.get(key) : (cfg.data_ || {})[key];
-                        const context = get('INNERTUBE_CONTEXT') || {};
-                        return get('CHANNEL_ID') || ((context.user || {}).delegationContext || {}).externalChannelId || '';
-                    }""")
-                    app_loaded = self.page.locator("ytcp-app").is_visible()
-                    if app_loaded and (configured == match[1] or match[1] in observed_channels):
-                        return {"channel_id": match[1]}
+                configured = self.page.evaluate("""() => {
+                    const cfg = window.ytcfg;
+                    const get = key => (cfg && typeof cfg.get === 'function' ? cfg.get(key) : undefined) ?? (cfg && (cfg.data_ || {})[key]) ?? (cfg && cfg[key]);
+                    const context = (cfg && get('INNERTUBE_CONTEXT')) || {};
+                    const delegation = ((context.user || {}).delegationContext || {}).externalChannelId;
+                    if (delegation) return delegation;
+
+                    const navLinks = Array.from(document.querySelectorAll('ytcp-navigation-item a, #menu a, ytcp-animatable a, a[href*="/channel/UC"]'));
+                    for (const a of navLinks) {
+                        const m = (a.getAttribute('href') || '').match(/\\/channel\\/(UC[A-Za-z0-9_-]{22})/);
+                        if (m) return m[1];
+                    }
+
+                    return (cfg && get('CHANNEL_ID')) || '';
+                }""")
+                app = self.page.locator("ytcp-app")
+                app_loaded = bool(self._visible(app) or self._visible(app.locator(":scope > *")))
+                if app_loaded and match:
+                    detected_channel = match[1]
+                    if self.expected_channel_id:
+                        if detected_channel == self.expected_channel_id:
+                            return {"channel_id": detected_channel}
+                    else:
+                        if configured == detected_channel or detected_channel in observed_channels or not configured:
+                            return {"channel_id": detected_channel}
                 self.page.wait_for_timeout(250)
         finally:
             self.page.remove_listener("response", observe)
-        raise StudioIssue("Chưa xác nhận được phiên và Channel ID trong Studio. Chọn đúng kênh rồi bấm Đăng nhập xong lần nữa.", "needs_login")
+        parsed = urlparse(self.page.url)
+        match = re.match(r"^/channel/(UC[A-Za-z0-9_-]{22})(?:/|$)", parsed.path)
+        configured_final = self.page.evaluate("""() => {
+            const cfg = window.ytcfg;
+            const get = key => (cfg && typeof cfg.get === 'function' ? cfg.get(key) : undefined) ?? (cfg && (cfg.data_ || {})[key]) ?? (cfg && cfg[key]);
+            const context = (cfg && get('INNERTUBE_CONTEXT')) || {};
+            const delegation = ((context.user || {}).delegationContext || {}).externalChannelId;
+            if (delegation) return delegation;
+
+            const navLinks = Array.from(document.querySelectorAll('ytcp-navigation-item a, #menu a, ytcp-animatable a, a[href*="/channel/UC"]'));
+            for (const a of navLinks) {
+                const m = (a.getAttribute('href') || '').match(/\\/channel\\/(UC[A-Za-z0-9_-]{22})/);
+                if (m) return m[1];
+            }
+
+            return (cfg && get('CHANNEL_ID')) || '';
+        }""")
+        detected_final = match[1] if (parsed.hostname == "studio.youtube.com" and match) else configured_final
+        if parsed.hostname == "studio.youtube.com" and detected_final and self.expected_channel_id and detected_final != self.expected_channel_id:
+            message = f"Studio đang mở kênh {detected_final}, khác kênh đã chọn ({self.expected_channel_id}). Chuyển đúng kênh trong cửa sổ Studio rồi bấm Xác minh lại phiên."
+        elif not self._visible(self.page.locator("ytcp-app")) and not self._visible(self.page.locator("ytcp-app > *")):
+            message = "Studio chưa tải được giao diện kênh. Kiểm tra mạng và cửa sổ Studio; tải lại trang rồi bấm Xác minh lại phiên hoặc Hủy để thử lại."
+        else:
+            message = "Studio đã mở nhưng chưa xác nhận được ngữ cảnh Channel ID. Chọn đúng kênh trong cửa sổ Studio rồi bấm Xác minh lại phiên; tool chưa lưu kết nối."
+        raise StudioIssue(message, "needs_login")
 
     def close(self):
         if self.browser:
@@ -269,7 +337,10 @@ class StudioBrowser:
         parsed = urlparse(self.page.url)
         if parsed.hostname in {"accounts.google.com", "consent.youtube.com"}:
             raise StudioIssue("Hãy đăng nhập và chọn đúng kênh trong cửa sổ Studio rồi bấm Tiếp tục.", "needs_login")
-        if parsed.hostname != "studio.youtube.com" or parsed.path.rstrip("/") != f"/video/{identifier}/{section}":
+        path = parsed.path.rstrip("/")
+        valid = (path == f"/video/{identifier}/{section}" or
+                 bool(re.fullmatch(rf"/channel/UC[A-Za-z0-9_-]{{22}}/video/{re.escape(identifier)}/{re.escape(section)}", path)))
+        if parsed.hostname != "studio.youtube.com" or not valid:
             raise StudioIssue("Studio chưa mở đúng Video ID. Kiểm tra tài khoản, kênh và quyền chỉnh sửa video.")
 
     @staticmethod
@@ -341,9 +412,7 @@ class StudioBrowser:
                 raise StudioIssue("Video không thuộc kênh đã kết nối. Kiểm tra Video ID hoặc đăng nhập lại đúng kênh.")
             if live.get("isLiveNow") or (details.get("isLiveContent") and not live.get("endTimestamp")):
                 return False
-            if "isLiveContent" not in details and not live.get("endTimestamp"):
-                raise KeyError("isLiveContent")
-            seconds = int(details["lengthSeconds"])
+            seconds = int(details.get("lengthSeconds", 0))
             if seconds <= 0:
                 return False
             if seconds >= 21600:

@@ -51,6 +51,8 @@ class ArchiveQueue:
         self.finish = threading.Event()
         self.cancel_login = threading.Event()
         self.login_pending = False
+        self.auth_busy = False
+        self.auth_source = ""
         self.auth_lock = threading.Lock()
         self.auth_command = None
         self.expected_login_channel = ""
@@ -89,8 +91,10 @@ class ArchiveQueue:
         if not self.closed.is_set() and status in {"completed", "stopped"} and job.get("trim_after_live"):
             self.enqueue(job["youtube_video_id"], job.get("publish_after_trim", True), job["id"])
 
-    def open_login(self):
+    def open_login(self, *, source="manual"):
         self.login_pending = True
+        self.auth_busy = True
+        self.auth_source = source
         self.browser_message = "Đang mở Studio. Đăng nhập và chọn đúng kênh trong cửa sổ mới."
         self.login.set()
         self.wake.set()
@@ -112,12 +116,13 @@ class ArchiveQueue:
             if self.login_pending:
                 raise ValueError("Đang đăng nhập. Hoàn tất hoặc bấm Hủy đăng nhập trước khi đổi cách kết nối.")
             self.auth_command = command
-            self.open_login()
+            self.open_login(source=command[0])
 
     def finish_login(self):
         if not self.login_pending:
             raise ValueError("Bắt đầu đăng nhập YouTube trước khi lưu phiên.")
         self.browser_message = "Đang xác minh phiên và chuyển sang chạy nền…"
+        self.auth_busy = True
         self.finish.set()
         self.wake.set()
 
@@ -129,7 +134,8 @@ class ArchiveQueue:
 
     def snapshot(self):
         return {"browser_message": self.browser_message, "tasks": self.store.archives(),
-                "session": dict(self.session), "login_pending": self.login_pending}
+                "session": dict(self.session), "login_pending": self.login_pending,
+                "auth_busy": self.auth_busy, "auth_source": self.auth_source}
 
     def cancel(self, task_id):
         # A submitted edit belongs to YouTube; this only stops further local actions.
@@ -143,8 +149,10 @@ class ArchiveQueue:
             task = self.store.archive(task_id)
             if task["status"] not in TERMINAL:
                 raise ValueError("Chỉ tiếp tục tác vụ đã dừng hoặc cần kiểm tra.")
+            if task["status"] == "needs_login" and not self.session.get("connected"):
+                raise ValueError("Chưa kết nối phiên YouTube Studio. Vui lòng chọn kênh và hoàn tất kết nối ở trên trước khi bấm Tiếp tục.")
             task.update(deadline=time.time() + 86400, clean_checks=0)
-            self._update(task, "queued", "Kiểm tra lại trạng thái thực tế trước khi tiếp tục.", delay=0)
+            self._update(task, "queued", "Đang xếp hàng kiểm tra bản lưu trong Studio…", delay=0)
         self.wake.set()
 
     def _update(self, task, status, message, delay=None):
@@ -184,15 +192,16 @@ class ArchiveQueue:
                         cancelled=lambda: self.cancel_login.is_set() or self.closed.is_set())
                     self.browser_message = "Đã gửi bước đăng nhập YouTube. Hoàn tất xác minh hai bước nếu có, chọn kênh rồi bấm Đăng nhập xong — chạy nền."
                 elif command[0] == "tuat":
+                    self.browser_message = "Đang mở cửa sổ Studio riêng và nhập phiên kênh đã chọn từ Tuất…"
                     cookies = load_channel_session(command[1])
                     try:
                         if self.cancel_login.is_set() or self.closed.is_set():
                             raise StudioIssue("Đã hủy kết nối kênh Tuất.", "needs_login")
-                        self._get_browser().import_session(command[1], cookies)
+                        self._get_browser().import_session(command[1], cookies, background=False)
                     finally:
                         cookies = None
                     self.finish.set()
-                    self.browser_message = "Đang xác minh phiên YouTube của kênh đã chọn trong tool Tuất…"
+                    self.browser_message = "Đang xác minh phiên Tuất trong cửa sổ Studio. Nếu được yêu cầu, chọn đúng kênh hoặc hoàn tất xác minh tại đó."
                 else:
                     self._get_browser().open_login()
                     self.browser_message = "Studio đã mở. Đăng nhập và chọn kênh, rồi bấm Đăng nhập xong — chạy nền. Tác vụ cắt đang tạm dừng."
@@ -204,8 +213,15 @@ class ArchiveQueue:
                     if sensitive:
                         message = message.replace(sensitive, "[ẩn]")
                 self.browser_message = message
+                if command[0] == "tuat":
+                    self.login_pending = False
+                    self.auth_source = ""
+                    self.expected_login_channel = ""
+                self.auth_busy = False
             finally:
                 command = None
+                if not self.finish.is_set():
+                    self.auth_busy = False
         if self.cancel_login.is_set():
             self.cancel_login.clear()
             self.finish.clear()
@@ -213,6 +229,8 @@ class ArchiveQueue:
                 self.browser.close()
                 self.browser = None
             self.login_pending = False
+            self.auth_busy = False
+            self.auth_source = ""
             self.expected_login_channel = ""
             self.browser_message = "Đã hủy bước đăng nhập. Giữ thiết lập phiên đã lưu trước đó."
         if self.finish.is_set():
@@ -234,20 +252,22 @@ class ArchiveQueue:
                 self.session = dict(connected=True, background=True, channel_id=channel_id, verified_at=time.time())
                 self.store.save_setting("studio_session", self.session)
                 self.login_pending = False
-                self.browser_message = (f"Đã dùng phiên từ tool Tuất của kênh {channel_id}. Tool đang chạy nền."
+                self.browser_message = (f"Đã dùng phiên từ tool Tuất của kênh {channel_id}. Tool đang chạy nền tự động xử lý video."
                                         if self.expected_login_channel else
-                                        f"Đã lưu phiên kênh {channel_id}. Tool đang chạy nền; chỉ cần đăng nhập lại khi phiên hết hạn.")
+                                        f"Đã lưu phiên kênh {channel_id}. Tool đang chạy nền tự động xử lý video.")
                 self.expected_login_channel = ""
                 with self.lock:
                     for task in self.store.archives():
                         if task["status"] == "needs_login" or task["status"] not in TERMINAL:
                             task.update(clean_checks=0, deadline=time.time() + 86400)
-                            self._update(task, "queued", "Đã kết nối Studio. Đọc lại trạng thái trước khi tiếp tục tác vụ.", delay=0)
+                            self._update(task, "queued", "Đã kết nối Studio thành công. Đang tự động kiểm tra bản lưu…", delay=0)
             except Exception as exc:
                 self.session = {**self.session, "connected": False}
                 self.store.save_setting("studio_session", self.session)
                 self.browser_message = (str(exc) if isinstance(exc, StudioIssue) else
                     "Chưa xác nhận được phiên chạy nền. Mở lại Studio, đăng nhập và chọn kênh.")
+            finally:
+                self.auth_busy = False
 
     def tick(self, now=None):
         now = time.time() if now is None else now
